@@ -1,0 +1,23 @@
+{
+	"mode": "dry-run",
+	"source": { "type": "pumpfun-graduations", "backfillLimit": 25 },
+	"target": {
+		"type": "pairfund",
+		"markets": { "strategy": "thematic", "count": 2 }
+	},
+	"wallets": { "type": "evm", "count": 3, "strategy": "round-robin" },
+	"rules": {
+		"minMarketCapUsd": 30000,
+		"maxSignalAgeSeconds": 3600,
+		"requireImage": true,
+		"denyWords": ["rug", "scam"]
+	},
+	"budget": {
+		"maxLaunchesPerHour": 3,
+		"maxLaunchesPerDay": 10,
+		"maxSpendPerLaunch": "0.005",
+		"maxSpendPerDay": "0.05",
+		"minWalletReserve": "0.001"
+	},
+	"store": { "dir": ".ledger" }
+}

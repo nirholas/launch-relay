@@ -1,0 +1,74 @@
+{
+	"name": "launch-relay",
+	"version": "0.1.0",
+	"description": "Autonomous, multi-wallet coin launcher. Pluggable event sources (pump.fun graduations on Solana) drive pluggable launchpad targets (PAIR on Robinhood Chain, pump.fun on Solana) through one rules -> plan -> confirm -> execute pipeline.",
+	"type": "module",
+	"license": "Apache-2.0",
+	"author": "nirholas",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/nirholas/launch-relay.git"
+	},
+	"bugs": {
+		"url": "https://github.com/nirholas/launch-relay/issues"
+	},
+	"homepage": "https://github.com/nirholas/launch-relay#readme",
+	"keywords": [
+		"launchpad",
+		"pump.fun",
+		"pair.fund",
+		"robinhood-chain",
+		"solana",
+		"evm",
+		"trading-bot",
+		"automation",
+		"multi-wallet",
+		"token-launch"
+	],
+	"engines": {
+		"node": ">=20"
+	},
+	"bin": {
+		"launch-relay": "bin/launch-relay.js"
+	},
+	"main": "src/index.js",
+	"exports": {
+		".": "./src/index.js",
+		"./sources/pumpfun-graduations": "./src/sources/pumpfun-graduations.js",
+		"./sources/manual": "./src/sources/manual.js",
+		"./targets/pairfund": "./src/targets/pairfund/index.js",
+		"./targets/pumpfun": "./src/targets/pumpfun.js",
+		"./wallets/evm": "./src/wallets/evm.js",
+		"./wallets/solana": "./src/wallets/solana.js",
+		"./store/file": "./src/store/file.js",
+		"./store/memory": "./src/store/memory.js",
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"src",
+		"bin",
+		"examples",
+		"README.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"start": "node bin/launch-relay.js run",
+		"doctor": "node bin/launch-relay.js doctor",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"lint": "node --check src/index.js"
+	},
+	"dependencies": {
+		"viem": "^2.52.2"
+	},
+	"optionalDependencies": {
+		"@solana/web3.js": "^1.98.4",
+		"bs58": "^6.0.0"
+	},
+	"devDependencies": {
+		"vitest": "^4.1.7"
+	},
+	"publishConfig": {
+		"access": "public"
+	}
+}
