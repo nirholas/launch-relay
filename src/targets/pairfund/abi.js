@@ -59,4 +59,28 @@ export const launchpadAbi = [
 	},
 ];
 
+/**
+ * PairV4Locker. Swap fees do not land in a creator's wallet: they accumulate
+ * inside the locked V4 position, PAIR's keeper sweeps them roughly hourly, and
+ * they wait here until claimed.
+ */
+export const PAIR_V4_LOCKER = '0xeFcF476E8870fB3eb8680f039414fdcCE6C2a117';
+
+export const lockerAbi = [
+	{
+		name: 'claim',
+		type: 'function',
+		stateMutability: 'nonpayable',
+		inputs: [{ name: 'asset', type: 'address' }],
+		outputs: [{ name: 'amount', type: 'uint256' }],
+	},
+	{
+		name: 'claimable',
+		type: 'function',
+		stateMutability: 'view',
+		inputs: [{ name: 'wallet', type: 'address' }, { name: 'asset', type: 'address' }],
+		outputs: [{ type: 'uint256' }],
+	},
+];
+
 export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';

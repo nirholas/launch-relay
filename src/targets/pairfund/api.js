@@ -76,6 +76,20 @@ export function createPairFundApi(opts = {}) {
 
 		platformStats: () => request('/api/stats/platform'),
 
+		trending: () => request('/api/stats/trending'),
+
+		/** Fee balances a wallet can claim right now, across every locker. */
+		feesClaimable: (wallet) => request(`/api/fees/claimable/${String(wallet).toLowerCase()}`),
+
+		/** Fees still inside the LP positions, not yet swept by the keeper. */
+		feesPending: (wallet) => request(`/api/fees/pending/${String(wallet).toLowerCase()}`),
+
+		/** Past claim transactions for a wallet. */
+		feesHistory: (wallet) => request(`/api/fees/history/${String(wallet).toLowerCase()}`),
+
+		/** Tokens a wallet has launched, newest first. */
+		walletTokens: (wallet) => request(`/api/profiles/${String(wallet).toLowerCase()}/tokens`),
+
 		/**
 		 * Is this ticker already listed? PAIR does not enforce uniqueness on
 		 * chain, so this is a quality check, not a validity one: two tokens may

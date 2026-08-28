@@ -87,6 +87,7 @@ export async function buildRelay(config, overrides = {}) {
 		avoidSymbolCollision: config.avoidSymbolCollision !== false,
 		onLaunch: overrides.onLaunch,
 		onSkip: overrides.onSkip,
+		onFailure: overrides.onFailure,
 	});
 
 	return { relay, target, wallets, sources, store, log, mode };

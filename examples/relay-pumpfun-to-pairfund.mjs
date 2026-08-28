@@ -6,6 +6,12 @@
 // This runs in dry-run mode: it does every read, every rule check, and prices
 // every launch, but signs nothing. Read the ledger it writes to .ledger/ before
 // you consider going live.
+//
+// Before funding anything, run the backtester over the same rules:
+//   npx launch-relay backtest --limit 500
+// and see examples/backtest-a-rule-set.mjs to compare two filters on one slice
+// of history. For a live relay that still needs your approval per launch, see
+// examples/unattended-with-phone-approval.mjs.
 
 import { presets } from 'launch-relay';
 

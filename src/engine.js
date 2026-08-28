@@ -41,6 +41,7 @@ const MAX_ATTEMPTS = 3;
  * @param {boolean} [opts.avoidSymbolCollision]       Default true.
  * @param {(result: object) => void} [opts.onLaunch]
  * @param {(skip: object) => void} [opts.onSkip]
+ * @param {(failure: object) => void} [opts.onFailure]
  */
 export function createRelay(opts) {
 	const {
@@ -48,7 +49,7 @@ export function createRelay(opts) {
 		mode = 'dry-run', confirm,
 		store = createMemoryStore(),
 		avoidSymbolCollision = true,
-		onLaunch, onSkip,
+		onLaunch, onSkip, onFailure,
 	} = opts;
 
 	if (!sources?.length) throw new Error('createRelay needs at least one source');
@@ -205,6 +206,7 @@ export function createRelay(opts) {
 			onLaunch?.({ signal, spec, plan, result });
 		} else {
 			log.error(`launch failed for ${spec.symbol}: ${result.error}`);
+			onFailure?.({ signal, spec, plan, result });
 		}
 		return { status: result.ok ? 'launched' : 'failed', result, plan };
 	}

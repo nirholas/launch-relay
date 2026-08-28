@@ -33,7 +33,11 @@
 	},
 	"main": "src/index.js",
 	"exports": {
-		".": "./src/index.js",
+		".": {
+			"types": "./index.d.ts",
+			"import": "./src/index.js",
+			"default": "./src/index.js"
+		},
 		"./sources/pumpfun-graduations": "./src/sources/pumpfun-graduations.js",
 		"./sources/manual": "./src/sources/manual.js",
 		"./targets/pairfund": "./src/targets/pairfund/index.js",
@@ -45,6 +49,7 @@
 		"./package.json": "./package.json"
 	},
 	"files": [
+		"index.d.ts",
 		"src",
 		"bin",
 		"examples",
@@ -56,7 +61,8 @@
 		"doctor": "node bin/launch-relay.js doctor",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"lint": "node --check src/index.js"
+		"lint": "node --check src/index.js",
+		"typecheck": "tsc --noEmit --skipLibCheck index.d.ts"
 	},
 	"dependencies": {
 		"viem": "^2.52.2"
@@ -66,9 +72,11 @@
 		"bs58": "^6.0.0"
 	},
 	"devDependencies": {
-		"vitest": "^4.1.7"
+		"vitest": "^4.1.7",
+		"typescript": "^5.6.0"
 	},
 	"publishConfig": {
 		"access": "public"
-	}
+	},
+	"types": "index.d.ts"
 }

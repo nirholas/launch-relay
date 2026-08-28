@@ -39,6 +39,24 @@ export { pickWallet, STRATEGIES } from './wallets/rotation.js';
 export { createFileStore } from './store/file.js';
 export { createMemoryStore } from './store/memory.js';
 
+// ── analysis, money, and operations ──────────────────────────────────────────
+export { backtest, fetchGraduationHistory, toHistoricalSignal, UNBACKTESTABLE_RULES } from './backtest.js';
+export { fetchClaimable, fetchPending, planClaims, executeClaims } from './targets/pairfund/fees.js';
+export { PAIR_V4_LOCKER, lockerAbi } from './targets/pairfund/abi.js';
+export { buildPortfolio, summarizeEconomics } from './positions.js';
+export { planFunding, executeFunding } from './wallets/fund.js';
+export { renderBacktest, renderPlan, renderPositions, renderFees, usd, pct } from './report.js';
+export { createDashboard } from './tui.js';
+
+// ── approvals and notifications ──────────────────────────────────────────────
+export {
+	createTelegramApproval, createTerminalApproval, createStandingApproval, requireAll,
+} from './approvals.js';
+export { createNotifier, buildTransports, createTelegramClient, createWebhookTransport } from './notify/index.js';
+
+// ── shared plumbing ──────────────────────────────────────────────────────────
+export { fetchImageBytes, fetchJson, isPrivateHost } from './http.js';
+
 import { createRelay } from './engine.js';
 import { createLogger } from './log.js';
 import { createPumpFunGraduationSource } from './sources/pumpfun-graduations.js';
