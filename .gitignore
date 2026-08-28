@@ -3,7 +3,7 @@ node_modules/
 .env.*
 !.env.example
 *.log
-.ledger/
+.ledger*/
 ledger/
 coverage/
 .DS_Store
