@@ -17,7 +17,7 @@ import { formatEther, keccak256, toBytes } from 'viem';
 import { createPairFundApi } from './api.js';
 import { createMarketSelector } from './markets.js';
 import { addressUrl, robinhoodChain, txUrl } from './chain.js';
-import { BPS_TOTAL, PAIR_LAUNCHPAD_V5, PAIR_TOTAL_SUPPLY, ZERO_ADDRESS, launchpadAbi } from './abi.js';
+import { BPS_TOTAL, NO_DEVELOPER_BUY, PAIR_LAUNCHPAD_V5, PAIR_TOTAL_SUPPLY, launchpadAbi } from './abi.js';
 
 /** The frontend's fallback when estimation is unavailable. */
 const FALLBACK_GAS = 8_000_000n;
@@ -126,7 +126,9 @@ export function createPairFundTarget(opts = {}) {
 				metadataHash,
 				allocations: selection.markets.map((m) => ({ quoteToken: m.address, weightBps: m.weightBps })),
 				creatorFeeRecipient: opts.creatorFeeRecipient || wallet.address,
-				developerBuyRecipient: devBuy.recipient || (devBuy.enabled ? wallet.address : ZERO_ADDRESS),
+				// Even a disabled buy names a real recipient: on-chain launches all
+				// carry the creator's address here, and a zero address is refused.
+				developerBuyRecipient: devBuy.recipient || wallet.address,
 				developerBuyPairIndex: devBuy.pairIndex,
 				developerTokenAmountOut: devBuy.tokenAmountOut,
 				maxQuoteAmountIn: devBuy.maxQuoteIn,
@@ -270,7 +272,8 @@ function previewMetadata(baseUrl, spec) {
  */
 function normalizeDevBuy(hint, markets, warnings) {
 	if (!hint || !hint.tokenAmountOut) {
-		return { enabled: false, recipient: ZERO_ADDRESS, pairIndex: 0, tokenAmountOut: 0n, maxQuoteIn: 0n };
+		// Disabled means index 255, not index 0. See NO_DEVELOPER_BUY.
+		return { enabled: false, recipient: null, pairIndex: NO_DEVELOPER_BUY, tokenAmountOut: 0n, maxQuoteIn: 0n };
 	}
 	const pairIndex = Number(hint.pairIndex ?? 0);
 	if (!Number.isInteger(pairIndex) || pairIndex < 0 || pairIndex >= markets.length) {

@@ -84,3 +84,15 @@ export const lockerAbi = [
 ];
 
 export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+/**
+ * The uint8 sentinel that means "no developer buy".
+ *
+ * This is not documented anywhere and it is not zero. Zero is a valid market
+ * index, so a launch that passes index 0 with a zero amount is asking to buy
+ * nothing out of the first pool, and the contract rejects it with
+ * `InvalidDeveloperBuy()` (0xc81a59ab). Confirmed by decoding the calldata of
+ * real no-buy launches on chain, which all pass 255 here along with the
+ * creator's own address as the recipient.
+ */
+export const NO_DEVELOPER_BUY = 255;

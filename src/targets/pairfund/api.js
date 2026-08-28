@@ -117,11 +117,29 @@ export function createPairFundApi(opts = {}) {
 		async mirrorImage(url) {
 			const bytes = await fetchImageBytes(url, { fetchImpl: doFetch, timeoutMs });
 			if (!bytes) return null;
+			return this.uploadImage(bytes.data, bytes.contentType);
+		},
+
+		/**
+		 * Store raw image bytes and return the permanent URL. The primitive
+		 * behind `mirrorImage`, exposed because artwork does not always start
+		 * life at a URL: a locally generated or locally stored logo needs the
+		 * same hosted home as a mirrored one.
+		 *
+		 * @param {Uint8Array|Buffer} data
+		 * @param {string} contentType
+		 * @returns {Promise<string>} Absolute URL on PAIR's image host.
+		 */
+		async uploadImage(data, contentType) {
+			if (!contentType?.startsWith('image/')) {
+				throw new PairApiError(`contentType must be an image type, got "${contentType}"`, 0, '');
+			}
 			const { url: stored } = await postJson('/api/images', {
-				data: Buffer.from(bytes.data).toString('base64'),
-				contentType: bytes.contentType,
+				data: Buffer.from(data).toString('base64'),
+				contentType,
 			});
-			return stored?.startsWith('http') ? stored : `${baseUrl}${stored}`;
+			if (!stored) throw new PairApiError('PAIR image upload returned no url', 0, '');
+			return stored.startsWith('http') ? stored : `${baseUrl}${stored}`;
 		},
 
 		/**

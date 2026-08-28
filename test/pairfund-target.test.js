@@ -101,12 +101,33 @@ describe('createPairFundTarget.plan', () => {
 		expect(plan.call.args[0].deadline).toBeLessThanOrEqual(now + 300n);
 	});
 
-	it('disables the developer buy by default', async () => {
+	it('disables the developer buy with the 255 sentinel, not index zero', async () => {
+		// Index 0 is a real market, so a zero-amount buy against it is not "no
+		// buy", it is an invalid buy, and the contract reverts with
+		// InvalidDeveloperBuy(). This exact encoding is what real no-buy
+		// launches carry on chain.
 		const target = createPairFundTarget({ api: fakeApi() });
-		const params = (await target.plan(spec(), ctx(fakeWallet()))).call.args[0];
-		expect(params.developerBuyRecipient).toBe('0x0000000000000000000000000000000000000000');
+		const wallet = fakeWallet();
+		const params = (await target.plan(spec(), ctx(wallet))).call.args[0];
+		expect(params.developerBuyPairIndex).toBe(255);
 		expect(params.developerTokenAmountOut).toBe(0n);
 		expect(params.maxQuoteAmountIn).toBe(0n);
+	});
+
+	it('names a real recipient even when the buy is disabled', async () => {
+		// A zero address here is refused by the contract regardless of amounts.
+		const target = createPairFundTarget({ api: fakeApi() });
+		const wallet = fakeWallet();
+		const params = (await target.plan(spec(), ctx(wallet))).call.args[0];
+		expect(params.developerBuyRecipient).toBe(wallet.address);
+	});
+
+	it('uses the selected market index when a developer buy is enabled', async () => {
+		const target = createPairFundTarget({ api: fakeApi(), marketSelector: { strategy: 'popular', count: 2 } });
+		const hints = { devBuy: { tokenAmountOut: 1n, maxQuoteIn: 2n, pairIndex: 1 } };
+		const params = (await target.plan(spec({ targetHints: hints }), ctx(fakeWallet()))).call.args[0];
+		expect(params.developerBuyPairIndex).toBe(1);
+		expect(params.developerTokenAmountOut).toBe(1n);
 	});
 
 	it('rejects a developer buy with no spend ceiling', async () => {

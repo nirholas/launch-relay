@@ -359,6 +359,16 @@ abandoned. The on-chain `metadataHash` is the keccak of the exact bytes uploaded
 serialized once and used for both, so the commitment can never point at a
 document that does not match.
 
+**The `developerBuyPairIndex = 255` sentinel.** If you are integrating PAIR
+yourself, this is the detail that will cost you an afternoon. Passing index `0`
+with zero amounts to mean "no developer buy" reverts with
+`InvalidDeveloperBuy()` (`0xc81a59ab`), because `0` is a valid market index and
+the contract reads it as a request to buy nothing out of the first pool. A
+no-buy launch passes `255` and the creator's own address as the recipient; a
+zero address is refused too. None of that is documented. It was recovered by
+decoding the calldata of real launches on chain, and `test/pairfund-target.test.js`
+pins it.
+
 The **developer buy** is off by default and deliberately so. It requires the
 launching wallet to already hold the stock token and to have approved the
 launchpad to spend it, which is a much larger commitment than paying a flat fee
@@ -719,6 +729,20 @@ const target: Target = {
 
 `examples/custom-source-and-target.mjs` is a runnable version of both.
 
+## Launching one coin by hand
+
+A relay picks its own coins. When you want exactly one thing launched, a test
+token or a named coin whose signal the feed dropped, the manual source feeds it
+through the same mapper, market selector, target, budget, and ledger:
+
+```bash
+node examples/launch-one-coin.mjs ./logo.png TEST "My Coin" "what it is"
+```
+
+`tools/render-logo.mjs` renders the crescent-and-orb mark used for that test
+token: raw RGB pixels, `zlib` for the IDAT stream, and PNG chunk framing by
+hand, so there is no image dependency to install for a one-off asset.
+
 ## The ledger
 
 Two append-only JSONL files under `store.dir` (default `.ledger/`):
@@ -741,14 +765,15 @@ tail -f .ledger/launches.jsonl
 
 ```bash
 npm install
-npm test          # 202 tests, no network, nothing spent
+npm test          # 204 tests, no network, nothing spent
 npm run typecheck # index.d.ts against tsc
 node bin/launch-relay.js doctor
 ```
 
 Tests cover the pure decision layers (rules, budget, rotation, market selection,
 naming, normalization, backtest scoring) and the adapter behavior that matters
-most: metadata hashing, plan and execute refusals, dedupe across restarts, fee
+most: metadata hashing, the dev-buy sentinel, plan and execute refusals, dedupe
+across restarts, fee
 claim batching, funding shortfalls, the full engine pipeline in both modes, and
 every failure mode of the Telegram approver (wrong chat, unauthorized user, stale
 nonce, timeout, transport error, all denying).

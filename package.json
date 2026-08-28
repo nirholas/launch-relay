@@ -54,7 +54,8 @@
 		"bin",
 		"examples",
 		"README.md",
-		"LICENSE"
+		"LICENSE",
+		"tools"
 	],
 	"scripts": {
 		"start": "node bin/launch-relay.js run",
