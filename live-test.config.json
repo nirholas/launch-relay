@@ -1,42 +1,58 @@
 {
-	"mode": "dry-run",
+	"mode": "live",
 	"source": {
 		"type": "pumpfun-graduations",
-		"backfillLimit": 10
+		"stream": true,
+		"pumpPortal": true,
+		"backfill": true,
+		"pollIntervalMs": 20000,
+		"backfillLimit": 25,
+		"emitBacklog": false
 	},
 	"target": {
 		"type": "pairfund",
 		"markets": {
 			"strategy": "thematic",
-			"count": 1
-		}
+			"count": 2,
+			"fallback": [
+				"SPCX",
+				"CRWV",
+				"BE",
+				"ORCL"
+			]
+		},
+		"deadlineSeconds": 600
 	},
 	"wallets": {
 		"type": "evm",
 		"strategy": "round-robin"
 	},
 	"rules": {
-		"minMarketCapUsd": 50000,
-		"maxSignalAgeSeconds": 900,
-		"requireImage": true,
-		"denyWords": [
-			"rug",
-			"scam",
-			"test"
-		]
+		"kinds": [
+			"graduation"
+		],
+		"maxSignalAgeSeconds": null,
+		"requireImage": false
 	},
 	"budget": {
-		"maxLaunchesPerHour": 1,
-		"maxLaunchesPerDay": 1,
-		"maxLaunchesPerWalletPerDay": 1,
-		"cooldownMs": 600000,
-		"walletCooldownMs": 600000,
-		"maxSpendPerLaunch": "0.003",
-		"maxSpendPerDay": "0.003",
+		"maxLaunchesPerHour": 15,
+		"maxLaunchesPerDay": 15,
+		"maxLaunchesPerWalletPerDay": 15,
+		"cooldownMs": 20000,
+		"walletCooldownMs": 20000,
+		"maxSpendPerLaunch": "0.0015",
+		"maxSpendPerDay": "0.0095",
 		"minWalletReserve": "0.001",
 		"killSwitchFile": "./HALT"
 	},
 	"store": {
 		"dir": ".ledger-live"
+	},
+	"dedupe": false,
+	"avoidSymbolCollision": false,
+	"mapper": {
+		"attributionTemplate": null,
+		"carryImage": true,
+		"carryLinks": true
 	}
 }

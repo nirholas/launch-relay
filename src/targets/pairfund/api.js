@@ -21,6 +21,50 @@ export const PAIR_API_BASE = 'https://pair.fund';
 const DEFAULT_TIMEOUT_MS = 15_000;
 const USER_AGENT = 'launch-relay/0.1';
 
+// PAIR's API is public, unauthenticated and shared. A relay that reacts to a
+// burst of graduations can fire dozens of uploads in a second, get itself
+// rate-limited, and fail every launch in the burst. Requests are therefore
+// serialized behind a minimum interval, and a 429 is waited out rather than
+// retried into the ground.
+const MIN_REQUEST_INTERVAL_MS = 350;
+const RETRY_STATUSES = new Set([429, 502, 503, 504]);
+const MAX_ATTEMPTS = 4;
+
+/** Largest image we will POST. Base64 inflates it by about 4/3, so this keeps
+ * the JSON body near 1.4MB; larger artwork came back 413 in the live run. */
+export const MAX_IMAGE_BYTES = 1_000_000;
+
+let requestChain = Promise.resolve();
+
+/** Serialize every call and space them out, so a burst becomes a queue. */
+function throttle(fn) {
+	const run = requestChain.then(async () => {
+		const started = Date.now();
+		try {
+			return await fn();
+		} finally {
+			const wait = MIN_REQUEST_INTERVAL_MS - (Date.now() - started);
+			if (wait > 0) await sleep(wait);
+		}
+	});
+	// The chain itself must never reject, or one failure poisons every request
+	// queued behind it.
+	requestChain = run.then(
+		() => undefined,
+		() => undefined,
+	);
+	return run;
+}
+
+/** Milliseconds from a Retry-After header, which is a delay or an HTTP date. */
+function retryAfterMs(header) {
+	if (!header) return null;
+	const seconds = Number(header);
+	if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+	const at = Date.parse(header);
+	return Number.isFinite(at) ? Math.max(0, at - Date.now()) : null;
+}
+
 /**
  * @param {{baseUrl?: string, timeoutMs?: number, fetchImpl?: typeof fetch}} [opts]
  */
@@ -29,7 +73,7 @@ export function createPairFundApi(opts = {}) {
 	const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const doFetch = opts.fetchImpl || fetch;
 
-	async function request(path, init = {}) {
+	async function attempt(path, init) {
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), timeoutMs);
 		try {
@@ -40,7 +84,12 @@ export function createPairFundApi(opts = {}) {
 			});
 			if (!res.ok) {
 				const body = await res.text().catch(() => '');
-				throw new PairApiError(`PAIR ${init.method || 'GET'} ${path} failed: ${res.status}`, res.status, body.slice(0, 400));
+				throw new PairApiError(
+					`PAIR ${init.method || 'GET'} ${path} failed: ${res.status}`,
+					res.status,
+					body.slice(0, 400),
+					retryAfterMs(res.headers.get('retry-after')),
+				);
 			}
 			return res.status === 204 ? null : res.json();
 		} catch (err) {
@@ -49,6 +98,28 @@ export function createPairFundApi(opts = {}) {
 		} finally {
 			clearTimeout(timer);
 		}
+	}
+
+	/**
+	 * Throttled, and retried on the statuses that mean "later, not never".
+	 * A 4xx that is not 429 is the caller's fault and fails immediately.
+	 */
+	async function request(path, init = {}) {
+		let lastError;
+		for (let i = 0; i < MAX_ATTEMPTS; i++) {
+			try {
+				return await throttle(() => attempt(path, init));
+			} catch (err) {
+				lastError = err;
+				const status = err instanceof PairApiError ? err.status : 0;
+				if (!RETRY_STATUSES.has(status) || i === MAX_ATTEMPTS - 1) throw err;
+				// Honour Retry-After when the server sent one, otherwise back
+				// off exponentially: 1s, 2s, 4s.
+				const backoff = err.retryAfterMs ?? 1000 * 2 ** i;
+				await sleep(Math.min(backoff, 30_000));
+			}
+		}
+		throw lastError;
 	}
 
 	const postJson = (path, body) =>
@@ -117,6 +188,11 @@ export function createPairFundApi(opts = {}) {
 		async mirrorImage(url) {
 			const bytes = await fetchImageBytes(url, { fetchImpl: doFetch, timeoutMs });
 			if (!bytes) return null;
+			// Oversized source artwork is a property of the source coin, not a
+			// fault the relay can fix without an image encoder. Returning null
+			// launches the token without a logo, which beats failing the launch
+			// outright on a guaranteed 413.
+			if (bytes.data.length > MAX_IMAGE_BYTES) return null;
 			return this.uploadImage(bytes.data, bytes.contentType);
 		},
 
@@ -133,6 +209,13 @@ export function createPairFundApi(opts = {}) {
 		async uploadImage(data, contentType) {
 			if (!contentType?.startsWith('image/')) {
 				throw new PairApiError(`contentType must be an image type, got "${contentType}"`, 0, '');
+			}
+			if (data.length > MAX_IMAGE_BYTES) {
+				throw new PairApiError(
+					`image is ${(data.length / 1024).toFixed(0)}KB, over the ${MAX_IMAGE_BYTES / 1024}KB limit`,
+					413,
+					'',
+				);
 			}
 			const { url: stored } = await postJson('/api/images', {
 				data: Buffer.from(data).toString('base64'),
@@ -219,11 +302,13 @@ export function createPairFundApi(opts = {}) {
 }
 
 export class PairApiError extends Error {
-	constructor(message, status, body) {
+	constructor(message, status, body, retryAfter = null) {
 		super(message);
 		this.name = 'PairApiError';
 		this.status = status;
 		this.body = body;
+		/** Server-requested wait before a retry, in ms, when it sent one. */
+		this.retryAfterMs = retryAfter;
 	}
 }
 
