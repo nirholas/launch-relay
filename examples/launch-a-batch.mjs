@@ -63,7 +63,18 @@ if (!contentType) throw new Error(`unsupported artwork type "${extname(imagePath
 const BATCH_COUNTER_CEILING = 100_000;
 
 const log = createLogger('batch');
-const target = createPairFundTarget({ marketSelector: { strategy: 'thematic', count: 2 } });
+// An operator naming the market wants exactly that market, so a pinned symbol
+// becomes the whole fallback list and the count caps how many pools back the
+// token. Left unset, the thematic selector picks from the coin text as usual.
+const market = flag('market');
+const pools = Number(flag('pools', market ? '1' : '2'));
+const target = createPairFundTarget({
+	marketSelector: {
+		strategy: 'thematic',
+		count: pools,
+		...(market ? { fallback: market.split(',').map((m) => m.trim().toUpperCase()) } : {}),
+	},
+});
 
 const bytes = readFileSync(imagePath);
 const imageUrl = await target.api.uploadImage(bytes, contentType);
