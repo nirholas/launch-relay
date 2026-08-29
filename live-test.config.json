@@ -35,13 +35,13 @@
 		"requireImage": false
 	},
 	"budget": {
-		"maxLaunchesPerHour": 15,
-		"maxLaunchesPerDay": 15,
-		"maxLaunchesPerWalletPerDay": 15,
-		"cooldownMs": 20000,
-		"walletCooldownMs": 20000,
+		"maxLaunchesPerHour": 200,
+		"maxLaunchesPerDay": 500,
+		"maxLaunchesPerWalletPerDay": 500,
+		"cooldownMs": 6000,
+		"walletCooldownMs": 6000,
 		"maxSpendPerLaunch": "0.0015",
-		"maxSpendPerDay": "0.0095",
+		"maxSpendPerDay": "1.0",
 		"minWalletReserve": "0.001",
 		"killSwitchFile": "./HALT"
 	},
