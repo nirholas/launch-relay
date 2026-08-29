@@ -12,7 +12,7 @@
 	"target": {
 		"type": "pairfund",
 		"markets": {
-			"strategy": "thematic",
+			"strategy": "random",
 			"count": 2,
 			"fallback": [
 				"SPCX",
