@@ -71,12 +71,15 @@ describe('createPairFundTarget.plan', () => {
 		expect(plan.contract).toBe(PAIR_LAUNCHPAD_V5);
 	});
 
-	it('prices gas with a buffer over the estimate', async () => {
+	it('buffers the gas limit but budgets the unbuffered estimate', async () => {
+		// The limit is generous so a launch never dies on out-of-gas, but the
+		// EVM refunds whatever the call does not burn. Budgeting the buffer
+		// would price every launch ~15% above what it actually costs and stop
+		// the relay before the wallet is really spent.
 		const target = createPairFundTarget({ api: fakeApi() });
 		const plan = await target.plan(spec(), ctx(fakeWallet()));
-		const bufferedGas = (GAS * 115n) / 100n;
-		expect(plan.call.gas).toBe(bufferedGas);
-		expect(plan.cost.totalBase).toBe(LAUNCH_FEE + bufferedGas * GAS_PRICE);
+		expect(plan.call.gas).toBe((GAS * 115n) / 100n);
+		expect(plan.cost.totalBase).toBe(LAUNCH_FEE + GAS * GAS_PRICE);
 	});
 
 	it('defaults creator fees to the launching wallet', async () => {

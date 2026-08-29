@@ -24,6 +24,7 @@ const FALLBACK_GAS = 8_000_000n;
 const GAS_BUFFER_NUM = 115n;
 const GAS_BUFFER_DEN = 100n;
 const STOCK_TOKEN_TTL_MS = 60_000;
+const LAUNCH_FEE_TTL_MS = 600_000;
 const DEFAULT_DEADLINE_SECONDS = 600;
 
 /**
@@ -53,6 +54,20 @@ export function createPairFundTarget(opts = {}) {
 		if (!Array.isArray(tokens) || !tokens.length) throw new Error('PAIR returned no stock tokens');
 		stockCache = { at: Date.now(), tokens };
 		return tokens;
+	}
+
+	// The launch fee is a governance parameter that changes at most a handful of
+	// times in a contract's life, yet it was read from chain on every launch. A
+	// short TTL keeps a fee change picked up within minutes while taking one RPC
+	// round trip out of the hot path.
+	let feeCache = { at: 0, wei: null };
+	async function launchFeeWei(publicClient) {
+		if (feeCache.wei !== null && Date.now() - feeCache.at < LAUNCH_FEE_TTL_MS) return feeCache.wei;
+		const wei = await publicClient.readContract({
+			address: launchpad, abi: launchpadAbi, functionName: 'launchFeeWei',
+		});
+		feeCache = { at: Date.now(), wei };
+		return wei;
 	}
 
 	return {
@@ -113,9 +128,7 @@ export function createPairFundTarget(opts = {}) {
 				}));
 			}
 
-			const launchFee = await publicClient.readContract({
-				address: launchpad, abi: launchpadAbi, functionName: 'launchFeeWei',
-			});
+			const launchFee = await launchFeeWei(publicClient);
 
 			const devBuy = normalizeDevBuy(spec.targetHints?.devBuy, selection.markets, warnings);
 			const deadline = BigInt(Math.floor(Date.now() / 1000) + deadlineSeconds);
@@ -149,19 +162,34 @@ export function createPairFundTarget(opts = {}) {
 			// surface here rather than as a reverted transaction.
 			let gas = FALLBACK_GAS;
 			let projectToken = null;
+			let gasPrice = 0n;
 			try {
-				const sim = await publicClient.simulateContract({ ...call, chain });
+				// These three are independent reads of the same pending state, so
+				// they go out together rather than as three sequential round
+				// trips. Simulation stays the validity check; estimation gives the
+				// limit; the price is needed either way.
+				const [sim, estimated, price] = await Promise.all([
+					publicClient.simulateContract({ ...call, chain }),
+					publicClient.estimateContractGas(call),
+					publicClient.getGasPrice(),
+				]);
 				projectToken = sim.result ? String(sim.result).toLowerCase() : null;
-				gas = await publicClient.estimateContractGas(call);
+				gas = estimated;
+				gasPrice = price;
 			} catch (err) {
 				const reason = shortError(err);
 				if (dryRun) warnings.push(`simulation failed: ${reason}`);
 				else throw new Error(`PAIR launch simulation failed: ${reason}`);
 			}
+			if (gasPrice === 0n) gasPrice = await publicClient.getGasPrice();
 
+			// The limit carries a safety buffer, but the EVM refunds every unit
+			// the call does not burn, so the buffer is never actually paid.
+			// Budgeting against the buffered limit made each launch look ~15%
+			// more expensive than it is and stopped the relay early; the budget
+			// therefore uses the estimate and the limit stays generous.
 			const gasLimit = (gas * GAS_BUFFER_NUM) / GAS_BUFFER_DEN;
-			const gasPrice = await publicClient.getGasPrice();
-			const gasCost = gasLimit * gasPrice;
+			const gasCost = gas * gasPrice;
 			const total = launchFee + gasCost;
 
 			return {

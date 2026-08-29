@@ -193,7 +193,18 @@ export function createPairFundApi(opts = {}) {
 			// launches the token without a logo, which beats failing the launch
 			// outright on a guaranteed 413.
 			if (bytes.data.length > MAX_IMAGE_BYTES) return null;
-			return this.uploadImage(bytes.data, bytes.contentType);
+			try {
+				return await this.uploadImage(bytes.data, bytes.contentType);
+			} catch (err) {
+				// A 4xx means PAIR will never accept this particular image, so
+				// retrying it re-uploads a doomed payload on every attempt. The
+				// launch proceeds without artwork instead. A 5xx or a timeout is
+				// a different story and still propagates, because that one is
+				// worth retrying.
+				const status = err instanceof PairApiError ? err.status : 0;
+				if (status >= 400 && status < 500) return null;
+				throw err;
+			}
 		},
 
 		/**
