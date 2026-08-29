@@ -25,6 +25,7 @@
 const THREEWS_BASE = 'https://three.ws';
 const PUMPPORTAL_WS = 'wss://pumpportal.fun/api/data';
 const PUMPFUN_COIN_API = 'https://frontend-api-v3.pump.fun/coins';
+const CREATOR_LAUNCH_PAGE = 100;
 
 const DEFAULT_POLL_MS = 20_000;
 const RECONNECT_BASE_MS = 2_000;
@@ -42,13 +43,16 @@ const ENRICH_TIMEOUT_MS = 6_000;
  * @param {number} [opts.backfillLimit]  Items per backfill poll. Default 25.
  * @param {boolean} [opts.emitBacklog]   Emit the first backfill page on start. Default false, so a
  *                                       restart does not replay yesterday's graduations.
+ * @param {boolean} [opts.enrichCreator] Resolve how many coins the creator has launched. Off by
+ *                                       default: it costs one extra request per graduation, and
+ *                                       only the maxCreatorLaunches rule needs it.
  * @returns {import('../types.js').Source}
  */
 export function createPumpFunGraduationSource(opts = {}) {
 	const {
 		stream = true, pumpPortal = true, backfill = true,
 		baseUrl = THREEWS_BASE, pollIntervalMs = DEFAULT_POLL_MS,
-		backfillLimit = 25, emitBacklog = false,
+		backfillLimit = 25, emitBacklog = false, enrichCreator = false,
 	} = opts;
 
 	const seen = new Set();
@@ -76,7 +80,7 @@ export function createPumpFunGraduationSource(opts = {}) {
 			const emit = async (raw, rung) => {
 				const normalized = normalizeGraduation(raw);
 				if (!normalized || !firstSeen(normalized.address)) return;
-				const signalOut = await enrichSignal(normalized);
+				const signalOut = await enrichSignal(normalized, { enrichCreator });
 				log.debug(`${rung} -> ${signalOut.symbol || '?'} ${signalOut.address}`);
 				onSignal(signalOut);
 			};
@@ -102,7 +106,7 @@ export function createPumpFunGraduationSource(opts = {}) {
 			const items = page?.items || [];
 			log?.debug?.(`backfill returned ${items.length} graduations`);
 			const normalized = items.map(normalizeGraduation).filter(Boolean);
-			return Promise.all(normalized.map(enrichSignal));
+			return Promise.all(normalized.map((sig) => enrichSignal(sig, { enrichCreator })));
 		},
 
 		pollIntervalMs,
@@ -309,16 +313,59 @@ export function normalizeGraduation(raw) {
  * @param {import('../types.js').Signal} signal
  * @returns {Promise<import('../types.js').Signal>}
  */
-export async function enrichSignal(signal) {
+export async function enrichSignal(signal, { enrichCreator = false } = {}) {
 	const thin = !signal.name || !signal.symbol || !signal.imageUrl || signal.metrics?.marketCapUsd == null;
-	if (!thin) return signal;
-	const coin = await fetchCoin(signal.address);
-	if (!coin || !Object.keys(coin).length) return signal;
-	const merged = normalizeGraduation({ ...signal.raw, ...coin, mint: signal.address });
-	if (!merged) return signal;
-	// The rung's own timestamp wins: it is when the graduation was observed,
-	// while pump.fun's fields describe the coin, not the migration.
-	return { ...merged, at: signal.at, id: signal.id, raw: { ...signal.raw, ...coin } };
+	let out = signal;
+
+	if (thin) {
+		const coin = await fetchCoin(signal.address);
+		if (coin && Object.keys(coin).length) {
+			const merged = normalizeGraduation({ ...signal.raw, ...coin, mint: signal.address });
+			// The rung's own timestamp wins: it is when the graduation was
+			// observed, while pump.fun's fields describe the coin, not the
+			// migration.
+			if (merged) out = { ...merged, at: signal.at, id: signal.id, raw: { ...signal.raw, ...coin } };
+		}
+	}
+
+	// No rung carries a creator's launch history, and rules fail closed on
+	// unknown inputs, so maxCreatorLaunches rejects every signal unless this
+	// runs. It is a second request per graduation, which is why it is opt-in
+	// and why the config turns it on only when that rule is configured.
+	if (enrichCreator && out.creator && out.metrics?.creatorLaunches == null) {
+		const launches = await fetchCreatorLaunchCount(out.creator);
+		if (launches != null) out = { ...out, metrics: { ...out.metrics, creatorLaunches: launches } };
+	}
+
+	return out;
+}
+
+/**
+ * How many coins this creator has launched. A high count is the signature of a
+ * farm rather than a project, which is the whole reason the rule exists.
+ *
+ * @param {string} creator
+ * @returns {Promise<number|null>} null when it cannot be determined, so the
+ *   rule fails closed rather than treating an outage as a clean record.
+ */
+async function fetchCreatorLaunchCount(creator) {
+	try {
+		// The `user-created-coins` path that the ecosystem still passes around
+		// now 404s. This query parameter is the live route.
+		const coins = await fetchJson(
+			`${PUMPFUN_COIN_API}?creator=${encodeURIComponent(creator)}&offset=0`
+			+ `&limit=${CREATOR_LAUNCH_PAGE}&includeNsfw=true`,
+			null,
+			ENRICH_TIMEOUT_MS,
+		);
+		const list = Array.isArray(coins) ? coins : coins?.coins;
+		if (!Array.isArray(list)) return null;
+		// A full page means "at least this many". Any cap worth setting is far
+		// below a hundred launches, so saturating here costs the rule nothing.
+		return list.length;
+	} catch {
+		return null;
+	}
 }
 
 async function fetchCoin(mint) {

@@ -39,6 +39,10 @@ const MAX_ATTEMPTS = 3;
  * @param {import('./types.js').Store} [opts.store]
  * @param {import('./types.js').Logger} [opts.logger]
  * @param {boolean} [opts.avoidSymbolCollision]       Default true.
+ * @param {boolean} [opts.dedupe]                     Default true. Turning it off lets the same
+ *        source asset be launched again across restarts, which is what "relay everything, even
+ *        repeats" means. Sources keep their own in-process seen set either way, so a polling rung
+ *        still cannot re-emit the same mint every interval.
  * @param {(result: object) => void} [opts.onLaunch]
  * @param {(skip: object) => void} [opts.onSkip]
  * @param {(failure: object) => void} [opts.onFailure]
@@ -49,6 +53,7 @@ export function createRelay(opts) {
 		mode = 'dry-run', confirm,
 		store = createMemoryStore(),
 		avoidSymbolCollision = true,
+		dedupe = true,
 		onLaunch, onSkip, onFailure,
 	} = opts;
 
@@ -77,14 +82,18 @@ export function createRelay(opts) {
 	let stops = [];
 	let pollTimers = [];
 
+	// With dedupe off, marking a signal seen would grow the ledger for nothing:
+	// the check that reads it never runs.
+	const markSeen = (id) => (dedupe ? store.mark(id) : Promise.resolve());
+
 	async function handleSignal(signal) {
 		const scope = `${signal.symbol || '?'} ${signal.address || signal.id}`;
 
-		if (await store.seen(signal.id)) return skip(signal, 'duplicate', ['already processed']);
+		if (dedupe && await store.seen(signal.id)) return skip(signal, 'duplicate', ['already processed']);
 
 		const verdict = await rules.evaluate(signal);
 		if (!verdict.pass) {
-			await store.mark(signal.id);
+			await markSeen(signal.id);
 			return skip(signal, 'filtered', verdict.reasons);
 		}
 
@@ -92,7 +101,7 @@ export function createRelay(opts) {
 		try {
 			spec = await mapper.map(signal);
 		} catch (err) {
-			await store.mark(signal.id);
+			await markSeen(signal.id);
 			return skip(signal, 'unmappable', [message(err)]);
 		}
 
@@ -102,7 +111,7 @@ export function createRelay(opts) {
 					max: mapper.config?.symbolMax ?? 10,
 				});
 				if (!free) {
-					await store.mark(signal.id);
+					await markSeen(signal.id);
 					return skip(signal, 'symbol-exhausted', [`every variant of ${spec.symbol} is taken on ${target.id}`]);
 				}
 				if (free !== spec.symbol) log.info(`${scope}: symbol ${spec.symbol} taken, using ${free}`);
@@ -151,7 +160,7 @@ export function createRelay(opts) {
 			// have been stopped, here is why" is the most useful line in it.
 			if (underfunded) plan.warnings.push('dry run: no wallet in the pool could fund this launch');
 			if (!check.ok) plan.warnings.push(`dry run: the budget would stop this launch (${check.reason})`);
-			await store.mark(signal.id);
+			await markSeen(signal.id);
 			await store.record({
 				status: 'planned', signalId: signal.id, target: target.id, wallet: wallet.address,
 				symbol: spec.symbol, name: spec.name, costBase: plan.cost.totalBase.toString(),
@@ -175,7 +184,7 @@ export function createRelay(opts) {
 
 		const approved = await confirm(plan);
 		if (!approved) {
-			await store.mark(signal.id);
+			await markSeen(signal.id);
 			await store.record({
 				status: 'declined', signalId: signal.id, target: target.id,
 				wallet: wallet.address, symbol: spec.symbol, origin: spec.origin,
@@ -191,7 +200,7 @@ export function createRelay(opts) {
 		}
 
 		wallets.markUsed(wallet.address);
-		await store.mark(signal.id);
+		await markSeen(signal.id);
 		await store.record({
 			status: result.ok ? 'launched' : 'failed',
 			signalId: signal.id, target: target.id, chain: target.chain,
@@ -226,7 +235,7 @@ export function createRelay(opts) {
 		attempts.set(signal.id, count);
 		if (count >= MAX_ATTEMPTS) {
 			attempts.delete(signal.id);
-			return store.mark(signal.id).then(() => skip(signal, `${reason}-giving-up`, details));
+			return markSeen(signal.id).then(() => skip(signal, `${reason}-giving-up`, details));
 		}
 		log.warn(`${signal.symbol || signal.id}: ${reason} (attempt ${count}/${MAX_ATTEMPTS}) ${details.join('; ')}`);
 		return { status: 'retry', reason, details };

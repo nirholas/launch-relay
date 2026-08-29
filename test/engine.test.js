@@ -238,3 +238,69 @@ describe('createRelay', () => {
 		expect(history[0].symbol).toBe('AAA');
 	});
 });
+
+describe('createRelay dedupe toggle', () => {
+	it('processes the same signal again when dedupe is off', async () => {
+		const target = fakeTarget();
+		const store = createMemoryStore();
+		const relay = createRelay({
+			sources: [createManualSource([])],
+			target,
+			wallets: fakeWalletPool(),
+			store,
+			logger: nullLogger,
+			rules: { kinds: ['manual'], maxSignalAgeSeconds: null },
+			dedupe: false,
+		});
+		await relay.handleSignal(signal());
+		const second = await relay.handleSignal(signal());
+		expect(second.status).toBe('planned');
+		expect(target.plan).toHaveBeenCalledTimes(2);
+	});
+
+	it('does not grow the seen set when dedupe is off', async () => {
+		const store = createMemoryStore();
+		const relay = createRelay({
+			sources: [createManualSource([])],
+			target: fakeTarget(),
+			wallets: fakeWalletPool(),
+			store,
+			logger: nullLogger,
+			rules: { kinds: ['manual'], maxSignalAgeSeconds: null },
+			dedupe: false,
+		});
+		await relay.handleSignal(signal());
+		expect(await store.seen('manual:one')).toBe(false);
+	});
+
+	it('keeps deduping by default', async () => {
+		const target = fakeTarget();
+		const relay = createRelay({
+			sources: [createManualSource([])],
+			target,
+			wallets: fakeWalletPool(),
+			store: createMemoryStore(),
+			logger: nullLogger,
+			rules: { kinds: ['manual'], maxSignalAgeSeconds: null },
+		});
+		await relay.handleSignal(signal());
+		expect((await relay.handleSignal(signal())).reason).toBe('duplicate');
+		expect(target.plan).toHaveBeenCalledOnce();
+	});
+
+	it('launches a colliding ticker as-is when collision avoidance is off', async () => {
+		const target = fakeTarget({ takenSymbols: ['TEST'] });
+		const relay = createRelay({
+			sources: [createManualSource([])],
+			target,
+			wallets: fakeWalletPool(),
+			store: createMemoryStore(),
+			logger: nullLogger,
+			rules: { kinds: ['manual'], maxSignalAgeSeconds: null },
+			avoidSymbolCollision: false,
+		});
+		await relay.handleSignal(signal());
+		expect(target.plan.mock.calls[0][0].symbol).toBe('TEST');
+		expect(target.symbolTaken).not.toHaveBeenCalled();
+	});
+});

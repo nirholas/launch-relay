@@ -85,6 +85,7 @@ export async function buildRelay(config, overrides = {}) {
 		budget: config.budget,
 		logger: log,
 		avoidSymbolCollision: config.avoidSymbolCollision !== false,
+		dedupe: config.dedupe !== false,
 		onLaunch: overrides.onLaunch,
 		onSkip: overrides.onSkip,
 		onFailure: overrides.onFailure,
@@ -153,6 +154,11 @@ function buildSources(cfg, config, env) {
 					pollIntervalMs: entry.pollIntervalMs,
 					backfillLimit: entry.backfillLimit,
 					emitBacklog: entry.emitBacklog,
+					// The creator's launch history costs an extra request per
+					// graduation, so it is fetched only when a rule reads it.
+					// Without this, maxCreatorLaunches silently rejects
+					// everything, because rules fail closed on unknown inputs.
+					enrichCreator: entry.enrichCreator ?? config.rules?.maxCreatorLaunches != null,
 				});
 			case 'manual':
 				return createManualSource(entry.entries || config.entries || []);
