@@ -492,13 +492,8 @@ async function run(config, opts, mode, { dashboard }) {
 		return;
 	}
 
-	if (notifier.enabled) {
-		await notifier.status(`launch-relay started in ${mode} mode: ${target.id} on ${target.chain}`).catch(() => {});
-	}
-
-	relay.start();
-	dash?.start();
-
+	// Bound before the feed and the notifier are touched. A startup probe is on
+	// a clock, and a slow WebSocket handshake must not read as a dead process.
 	// A managed runtime needs something to probe to know the process is alive,
 	// and an operator needs somewhere to read the counters without tailing a
 	// log. One endpoint serves both. Only bound when PORT is set, so nothing
@@ -522,6 +517,13 @@ async function run(config, opts, mode, { dashboard }) {
 			log.info(`health endpoint on :${process.env.PORT}`);
 		});
 	}
+
+	if (notifier.enabled) {
+		await notifier.status(`launch-relay started in ${mode} mode: ${target.id} on ${target.chain}`).catch(() => {});
+	}
+
+	relay.start();
+	dash?.start();
 
 	const shutdown = () => {
 		dash?.stop();
