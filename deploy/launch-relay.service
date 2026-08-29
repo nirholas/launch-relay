@@ -1,0 +1,49 @@
+# systemd unit for an always-on relay.
+#
+# Install to /etc/systemd/system/launch-relay.service, then:
+#   systemctl daemon-reload && systemctl enable --now launch-relay
+#
+# Restart=always is not optional. This process holds two sockets to third-party
+# feeds; one of them will drop at 3am, and a relay that stays down until someone
+# notices is a relay that misses a day of migrations.
+
+[Unit]
+Description=launch-relay: pump.fun graduations to PAIR
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=relay
+Group=relay
+WorkingDirectory=/opt/launch-relay
+
+# Secrets are read from a file root owns and relay can only read. They are
+# never in the unit file, which is world-readable.
+EnvironmentFile=/etc/launch-relay/env
+
+ExecStart=/usr/bin/node bin/launch-relay.js run --live --yes --config /etc/launch-relay/config.json
+
+Restart=always
+RestartSec=10
+# Give up restarting if it crashes 5 times in 5 minutes: that is a real fault,
+# and a crash loop against a launchpad is worth waking someone for.
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+StandardOutput=append:/var/log/launch-relay/relay.log
+StandardError=append:/var/log/launch-relay/relay.log
+
+# The process needs its ledger, its config, and nothing else on the disk.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/launch-relay/.ledger /var/log/launch-relay
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

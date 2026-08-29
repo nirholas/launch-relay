@@ -1,0 +1,58 @@
+{
+	"mode": "live",
+	"source": {
+		"type": "pumpfun-graduations",
+		"stream": true,
+		"pumpPortal": true,
+		"backfill": true,
+		"pollIntervalMs": 20000,
+		"backfillLimit": 25,
+		"emitBacklog": false
+	},
+	"target": {
+		"type": "pairfund",
+		"markets": {
+			"strategy": "thematic",
+			"count": 2,
+			"fallback": [
+				"SPCX",
+				"CRWV",
+				"BE",
+				"ORCL"
+			]
+		},
+		"deadlineSeconds": 600
+	},
+	"wallets": {
+		"type": "evm",
+		"strategy": "round-robin"
+	},
+	"rules": {
+		"kinds": [
+			"graduation"
+		],
+		"maxSignalAgeSeconds": null,
+		"requireImage": false
+	},
+	"budget": {
+		"maxLaunchesPerHour": 200,
+		"maxLaunchesPerDay": 500,
+		"maxLaunchesPerWalletPerDay": 500,
+		"cooldownMs": 6000,
+		"walletCooldownMs": 6000,
+		"maxSpendPerLaunch": "0.0015",
+		"maxSpendPerDay": "1.0",
+		"minWalletReserve": "0.001",
+		"killSwitchFile": "./HALT"
+	},
+	"store": {
+		"dir": "/data"
+	},
+	"dedupe": false,
+	"avoidSymbolCollision": false,
+	"mapper": {
+		"attributionTemplate": null,
+		"carryImage": true,
+		"carryLinks": true
+	}
+}

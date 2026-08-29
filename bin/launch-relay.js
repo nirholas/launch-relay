@@ -499,10 +499,35 @@ async function run(config, opts, mode, { dashboard }) {
 	relay.start();
 	dash?.start();
 
+	// A managed runtime needs something to probe to know the process is alive,
+	// and an operator needs somewhere to read the counters without tailing a
+	// log. One endpoint serves both. Only bound when PORT is set, so nothing
+	// changes for a local run.
+	let health;
+	if (process.env.PORT) {
+		const { createServer } = await import('node:http');
+		const startedAt = Date.now();
+		health = createServer((req, res) => {
+			const body = JSON.stringify({
+				status: 'ok',
+				mode,
+				target: target.id,
+				chain: target.chain,
+				uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+				wallets: wallets.list().map((w) => w.address),
+			});
+			res.writeHead(200, { 'content-type': 'application/json' }).end(body);
+		});
+		health.listen(Number(process.env.PORT), '0.0.0.0', () => {
+			log.info(`health endpoint on :${process.env.PORT}`);
+		});
+	}
+
 	const shutdown = () => {
 		dash?.stop();
 		relay.stop();
 		telegram?.stop?.();
+		health?.close();
 		process.exit(0);
 	};
 	process.on('SIGINT', shutdown);
