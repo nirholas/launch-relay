@@ -41,7 +41,7 @@
 		"maxLaunchesPerWalletPerDay": 500,
 		"cooldownMs": 6000,
 		"walletCooldownMs": 6000,
-		"maxSpendPerLaunch": "0.0015",
+		"maxSpendPerLaunch": "0.0025",
 		"maxSpendPerDay": "1.0",
 		"minWalletReserve": "0.001",
 		"killSwitchFile": "./HALT"
