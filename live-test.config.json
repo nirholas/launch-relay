@@ -36,9 +36,9 @@
 		"requireImage": false
 	},
 	"budget": {
-		"maxLaunchesPerHour": 200,
-		"maxLaunchesPerDay": 500,
-		"maxLaunchesPerWalletPerDay": 500,
+		"maxLaunchesPerHour": 1000,
+		"maxLaunchesPerDay": 10000,
+		"maxLaunchesPerWalletPerDay": 10000,
 		"cooldownMs": 6000,
 		"walletCooldownMs": 6000,
 		"maxSpendPerLaunch": "0.0025",
