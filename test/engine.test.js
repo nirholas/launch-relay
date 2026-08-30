@@ -336,3 +336,17 @@ describe('liveness', () => {
 		expect(stops).toBe(2);
 	});
 });
+
+describe('paused target', () => {
+	it('skips without retrying when the target reports itself paused', async () => {
+		const target = fakeTarget();
+		target.plan = async () => { const e = new Error('oracle is stale'); e.code = 'target-paused'; throw e; };
+		const { relay } = relayWith({ target });
+		const out = await relay.handleSignal(signal());
+		expect(out.status).toBe('skipped');
+		expect(out.reason).toBe('target-paused');
+		// A second delivery is a fresh attempt, not the second of three.
+		const again = await relay.handleSignal(signal());
+		expect(again.reason).toBe('target-paused');
+	});
+});

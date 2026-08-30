@@ -229,3 +229,25 @@ describe('createPairFundTarget.execute', () => {
 		expect(result).toMatchObject({ ok: false, error: 'transaction reverted on chain' });
 	});
 });
+
+describe('stale oracle', () => {
+	const staleRevert = () => { const e = new Error('reverted'); e.signature = '0xeb1fe96e'; throw e; };
+
+	it('refuses a live plan before uploading anything when the ETH feed is stale', async () => {
+		const api = fakeApi();
+		const wallet = fakeWallet({ publicClient: { readContract: async ({ functionName }) => (functionName === 'latestRoundData' ? staleRevert() : 500000000000000n) } });
+		const target = createPairFundTarget({ api });
+		const err = await target.plan(spec(), ctx(wallet)).catch((e) => e);
+		expect(err.code).toBe('target-paused');
+		expect(err.message).toMatch(/oracle is stale/);
+		expect(api.mirrorImage).not.toHaveBeenCalled();
+		expect(api.uploadMetadata).not.toHaveBeenCalled();
+	});
+
+	it('maps a StalePrice revert at simulation to the same paused error', async () => {
+		const wallet = fakeWallet({ publicClient: { simulateContract: async () => staleRevert() } });
+		const target = createPairFundTarget({ api: fakeApi() });
+		const err = await target.plan(spec(), ctx(wallet)).catch((e) => e);
+		expect(err.code).toBe('target-paused');
+	});
+});

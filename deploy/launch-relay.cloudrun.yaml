@@ -40,7 +40,7 @@ spec:
             secretKeyRef:
               key: latest
               name: launch-relay-evm-key
-        image: us-central1-docker.pkg.dev/aerial-vehicle-466722-p5/relay/launch-relay:v6
+        image: us-central1-docker.pkg.dev/aerial-vehicle-466722-p5/relay/launch-relay:v7
         livenessProbe:
           httpGet:
             path: /

@@ -13,11 +13,36 @@
 // gets sent except the deadline check, which refuses a stale plan instead of
 // silently rebuilding it.
 
-import { formatEther, keccak256, toBytes } from 'viem';
+import { createPublicClient, formatEther, http, keccak256, toBytes } from 'viem';
 import { createPairFundApi } from './api.js';
 import { createMarketSelector } from './markets.js';
 import { addressUrl, robinhoodChain, txUrl } from './chain.js';
 import { BPS_TOTAL, NO_DEVELOPER_BUY, PAIR_LAUNCHPAD_V5, PAIR_TOTAL_SUPPLY, launchpadAbi } from './abi.js';
+
+// PAIR's ETH/USD feed. launchTokenMulti reads it for the milestone target and
+// reverts with StalePrice when the keeper has not written for two hours, so
+// its freshness decides whether any launch on the platform can succeed.
+const ETH_PRICE_FEED = '0x3258Df8c1F1C9f5BFE83e118Fa343af6217CFc69';
+const STALE_PRICE_SELECTOR = '0xeb1fe96e'; // StalePrice(address,uint256)
+const feedAbi = [{ inputs: [], name: 'latestRoundData', outputs: [{ type: 'uint80' }, { type: 'int256' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'uint80' }], stateMutability: 'view', type: 'function' }];
+
+/** Walk a viem error chain for a revert selector. */
+function revertSelector(err) {
+	for (let e = err, i = 0; e && i < 8; e = e.cause, i++) if (e.signature) return e.signature;
+	return null;
+}
+
+/**
+ * A stale oracle is the platform's outage, not this launch's fault. The
+ * engine treats a paused target as a skip rather than a retry: retrying
+ * uploads metadata three times per coin for a revert that cannot clear until
+ * PAIR's keeper writes again.
+ */
+function oracleStale(detail) {
+	const err = new Error(`PAIR oracle is stale (${detail}); launches revert with StalePrice until the price keeper resumes`);
+	err.code = 'target-paused';
+	return err;
+}
 
 /** The frontend's fallback when estimation is unavailable. */
 const FALLBACK_GAS = 8_000_000n;
@@ -87,9 +112,18 @@ export function createPairFundTarget(opts = {}) {
 		async health() {
 			const [{ status }, tokens] = await Promise.all([api.health(), stockTokens()]);
 			const enabled = tokens.filter((t) => t.enabled).length;
+			let oracle = 'oracle fresh';
+			let oracleOk = true;
+			try {
+				const pc = opts.publicClient || createPublicClient({ chain, transport: http(opts.rpcUrl || chain.rpcUrls.default.http[0]) });
+				await pc.readContract({ address: ETH_PRICE_FEED, abi: feedAbi, functionName: 'latestRoundData' });
+			} catch (err) {
+				if (revertSelector(err) === STALE_PRICE_SELECTOR) { oracle = 'oracle STALE: every launch reverts until the keeper resumes'; oracleOk = false; }
+				else oracle = `oracle unreadable: ${shortError(err)}`;
+			}
 			return {
-				ok: status === 'ok' && enabled > 0,
-				detail: `api ${status}, ${enabled}/${tokens.length} stock markets enabled`,
+				ok: status === 'ok' && enabled > 0 && oracleOk,
+				detail: `api ${status}, ${enabled}/${tokens.length} stock markets enabled, ${oracle}`,
 			};
 		},
 
@@ -105,6 +139,18 @@ export function createPairFundTarget(opts = {}) {
 
 			const selection = selector.select(spec, await stockTokens());
 			log.debug('markets', selection.rationale);
+
+			// One cheap read before any upload: if the ETH feed is stale the
+			// launch will revert, and there is no point hosting artwork and a
+			// descriptor for a transaction that cannot be sent.
+			if (!dryRun) {
+				try {
+					await publicClient.readContract({ address: ETH_PRICE_FEED, abi: feedAbi, functionName: 'latestRoundData' });
+				} catch (err) {
+					if (revertSelector(err) === STALE_PRICE_SELECTOR) throw oracleStale('ETH/USD feed');
+					throw err;
+				}
+			}
 
 			// Artwork and descriptor. A dry run stays read-only: it neither
 			// uploads an image nor stores a descriptor, so a tuning session does
@@ -190,6 +236,10 @@ export function createPairFundTarget(opts = {}) {
 				gas = estimated;
 				gasPrice = price;
 			} catch (err) {
+				if (revertSelector(err) === STALE_PRICE_SELECTOR) {
+					if (dryRun) warnings.push('simulation failed: PAIR oracle is stale');
+					else throw oracleStale(`a paired market's feed, ${selection.markets.map((m) => m.symbol).join('/')}`);
+				}
 				const reason = shortError(err);
 				if (dryRun) warnings.push(`simulation failed: ${reason}`);
 				else throw new Error(`PAIR launch simulation failed: ${reason}`);

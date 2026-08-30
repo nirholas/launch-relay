@@ -146,6 +146,11 @@ export function createRelay(opts) {
 		try {
 			plan = await target.plan(spec, { wallet, log, dryRun });
 		} catch (err) {
+			// A paused target (stale oracle, halted launchpad) fails every coin
+			// the same way until the platform recovers. Retrying it costs three
+			// uploads per graduation for nothing; the next graduation is the
+			// retry, and it runs the moment the platform is back.
+			if (err?.code === 'target-paused') return skip(signal, 'target-paused', [message(err)]);
 			return retryable(signal, 'plan-failed', [message(err)]);
 		}
 
