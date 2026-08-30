@@ -46,6 +46,9 @@ export function createPairFundTarget(opts = {}) {
 		? opts.marketSelector
 		: createMarketSelector(opts.marketSelector || {});
 	const deadlineSeconds = opts.deadlineSeconds ?? DEFAULT_DEADLINE_SECONDS;
+	// Default on: a blank listing is worse than one fewer listing. Set false to
+	// keep the old behaviour of launching whatever the mirror managed to get.
+	const requireArtwork = opts.requireArtwork !== false;
 
 	let stockCache = { at: 0, tokens: null };
 	async function stockTokens() {
@@ -115,7 +118,17 @@ export function createPairFundTarget(opts = {}) {
 			} else {
 				if (spec.imageUrl) {
 					imageUrl = await api.mirrorImage(spec.imageUrl);
-					if (!imageUrl) warnings.push(`source image could not be mirrored: ${spec.imageUrl}`);
+					if (!imageUrl) {
+						// A token launched with no logo looks abandoned on the
+						// listing forever, and the artwork cannot be added after
+						// the fact. When the operator asks for artwork, a source
+						// image that no gateway will serve is a reason to skip the
+						// coin, not to mint a blank one.
+						if (requireArtwork) {
+							throw new Error(`artwork unavailable at ${spec.imageUrl}; every gateway refused it`);
+						}
+						warnings.push(`source image could not be mirrored: ${spec.imageUrl}`);
+					}
 				}
 				({ metadataURI, metadataHash } = await api.uploadMetadata({
 					name: spec.name,

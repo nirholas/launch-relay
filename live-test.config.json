@@ -21,7 +21,8 @@
 				"ORCL"
 			]
 		},
-		"deadlineSeconds": 600
+		"deadlineSeconds": 600,
+		"requireArtwork": true
 	},
 	"wallets": {
 		"type": "evm",

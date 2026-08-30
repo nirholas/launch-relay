@@ -105,6 +105,7 @@ function buildTarget(cfg = {}, env) {
 				marketSelector: cfg.markets,
 				deadlineSeconds: cfg.deadlineSeconds,
 				creatorFeeRecipient: cfg.creatorFeeRecipient,
+				requireArtwork: cfg.requireArtwork,
 			});
 		case 'pumpfun':
 			return createPumpFunTarget({

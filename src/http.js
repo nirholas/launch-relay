@@ -19,6 +19,36 @@ export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
  * @param {{timeoutMs?: number, fetchImpl?: typeof fetch, maxBytes?: number}} [opts]
  * @returns {Promise<{data: Uint8Array, contentType: string}|null>}
  */
+/**
+ * Public IPFS gateways, tried in order. A CID is content-addressed, so the same
+ * bytes are served by any of them: a gateway that is rate-limiting or down is
+ * an outage of that host, not of the artwork. Relaying a coin without its logo
+ * because ipfs.io was busy is a worse outcome than one extra request.
+ */
+const IPFS_GATEWAYS = [
+	'https://ipfs.io/ipfs/',
+	'https://cloudflare-ipfs.com/ipfs/',
+	'https://dweb.link/ipfs/',
+	'https://gateway.pinata.cloud/ipfs/',
+];
+
+/**
+ * Every URL worth trying for one piece of artwork, best first. For an IPFS URL
+ * that is the same CID across each gateway; for anything else it is just the
+ * URL itself.
+ *
+ * @param {URL} parsed
+ * @returns {string[]}
+ */
+export function imageUrlCandidates(parsed) {
+	const href = parsed.toString();
+	const ipfsPath = parsed.pathname.match(/\/ipfs\/(.+)$/);
+	if (!ipfsPath) return [href];
+	const cid = ipfsPath[1];
+	const alternates = IPFS_GATEWAYS.map((g) => g + cid).filter((u) => u !== href);
+	return [href, ...alternates];
+}
+
 export async function fetchImageBytes(url, opts = {}) {
 	const { timeoutMs = 15_000, fetchImpl = fetch, maxBytes = MAX_IMAGE_BYTES } = opts;
 	let parsed;
@@ -30,10 +60,22 @@ export async function fetchImageBytes(url, opts = {}) {
 	if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
 	if (isPrivateHost(parsed.hostname)) return null;
 
+	for (const candidate of imageUrlCandidates(parsed)) {
+		const got = await fetchOneImage(candidate, { timeoutMs, fetchImpl, maxBytes });
+		if (got) return got;
+	}
+	return null;
+}
+
+/**
+ * One attempt at one URL. Returns null for every failure mode, so the caller
+ * can move to the next candidate without distinguishing them.
+ */
+async function fetchOneImage(href, { timeoutMs, fetchImpl, maxBytes }) {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
 	try {
-		const res = await fetchImpl(parsed.toString(), {
+		const res = await fetchImpl(href, {
 			signal: controller.signal,
 			redirect: 'follow',
 			headers: { 'user-agent': USER_AGENT, accept: 'image/*' },

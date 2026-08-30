@@ -146,8 +146,14 @@ describe('createPairFundTarget.plan', () => {
 			.rejects.toThrow(/outside the 1 selected markets/);
 	});
 
-	it('warns instead of failing when the source artwork cannot be mirrored', async () => {
+	it('skips the coin when its artwork cannot be mirrored', async () => {
+		// Default: a blank listing is worse than one fewer listing.
 		const target = createPairFundTarget({ api: fakeApi({ mirrorImage: async () => null }) });
+		await expect(target.plan(spec(), ctx(fakeWallet()))).rejects.toThrow(/artwork unavailable/);
+	});
+
+	it('warns instead of failing on missing artwork when requireArtwork is off', async () => {
+		const target = createPairFundTarget({ api: fakeApi({ mirrorImage: async () => null }), requireArtwork: false });
 		const plan = await target.plan(spec(), ctx(fakeWallet()));
 		expect(plan.warnings.join(' ')).toMatch(/could not be mirrored/);
 	});
