@@ -46,6 +46,8 @@ const MAX_ATTEMPTS = 3;
  * @param {(result: object) => void} [opts.onLaunch]
  * @param {(skip: object) => void} [opts.onSkip]
  * @param {(failure: object) => void} [opts.onFailure]
+ * @param {(signal: object) => void} [opts.onSignal]     Every signal a source delivers, before rules run.
+ *        The liveness signal: a relay that has not seen one in a while has a dead feed, not a quiet one.
  */
 export function createRelay(opts) {
 	const {
@@ -54,7 +56,7 @@ export function createRelay(opts) {
 		store = createMemoryStore(),
 		avoidSymbolCollision = true,
 		dedupe = true,
-		onLaunch, onSkip, onFailure,
+		onLaunch, onSkip, onFailure, onSignal,
 	} = opts;
 
 	if (!sources?.length) throw new Error('createRelay needs at least one source');
@@ -81,6 +83,7 @@ export function createRelay(opts) {
 	let controller = null;
 	let stops = [];
 	let pollTimers = [];
+	let lastSignalAt = 0;
 
 	// With dedupe off, marking a signal seen would grow the ledger for nothing:
 	// the check that reads it never runs.
@@ -242,6 +245,8 @@ export function createRelay(opts) {
 	}
 
 	function enqueue(signal) {
+		lastSignalAt = Date.now();
+		onSignal?.(signal);
 		if (queue.length >= MAX_QUEUE) {
 			log.warn(`queue full at ${MAX_QUEUE}, dropping ${signal.id}`);
 			return;
@@ -316,6 +321,19 @@ export function createRelay(opts) {
 			}
 			log.info(`relay started in ${mode} mode: ${sources.map((s) => s.id).join(', ')} -> ${target.id}`);
 			return () => this.stop();
+		},
+
+		/** When the most recent signal arrived, or 0 before the first. */
+		get lastSignalAt() { return lastSignalAt; },
+
+		/**
+		 * Tear every source down and bring it back. The cure for a half-open
+		 * socket: a feed that stopped delivering without ever firing close has
+		 * nothing left that will reconnect it on its own.
+		 */
+		restart() {
+			this.stop();
+			this.start();
 		},
 
 		stop() {

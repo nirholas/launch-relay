@@ -458,16 +458,26 @@ async function run(config, opts, mode, { dashboard }) {
 	// exists. Without this the two would have to be built in the same breath.
 	const ui = { hooks: null };
 
+	// Liveness counters. A managed runtime can only restart what it can see is
+	// broken, and "the process is up" says nothing about whether the feed is.
+	const pulse = { startedAt: Date.now(), signals: 0, launches: 0, failures: 0, lastLaunchAt: 0, restarts: 0 };
+
 	const built = await buildRelay(config, {
 		mode,
 		confirm,
 		logger: log,
+		onSignal: () => { pulse.signals += 1; },
 		onLaunch: (event) => {
+			pulse.launches += 1;
+			pulse.lastLaunchAt = Date.now();
 			ui.hooks?.onLaunch(event);
 			notifier.launched(event).catch(() => {});
 		},
 		onSkip: (event) => ui.hooks?.onSkip(event),
-		onFailure: (event) => notifier.failed(event).catch(() => {}),
+		onFailure: (event) => {
+			pulse.failures += 1;
+			notifier.failed(event).catch(() => {});
+		},
 	});
 	const { relay, target, wallets, store } = built;
 
@@ -492,6 +502,42 @@ async function run(config, opts, mode, { dashboard }) {
 		return;
 	}
 
+	// Self-healing. pump.fun graduates coins continuously, so a feed that has
+	// gone quiet for this long is a dead feed, not a slow night. Both stream
+	// rungs reconnect when their socket closes, but a half-open socket never
+	// closes: it just stops delivering. Nothing inside the source can notice
+	// that, so this watchdog does. First it restarts the sources in place.
+	// If the feed is still silent a full window later, the process exits
+	// non-zero and the runtime replaces the container, which also clears
+	// anything the in-process restart could not reach.
+	const FEED_STALL_MS = Number(process.env.LAUNCH_RELAY_FEED_STALL_MS || 20 * 60_000);
+	const feedSilentMs = () => Date.now() - Math.max(relay.lastSignalAt, pulse.startedAt, lastRestartAt);
+	const feedStalled = () => feedSilentMs() > FEED_STALL_MS;
+	let lastRestartAt = 0;
+	const watchdog = setInterval(() => {
+		if (!feedStalled()) return;
+		const silentMin = Math.round(feedSilentMs() / 60_000);
+		if (pulse.restarts > 0 && Date.now() - lastRestartAt > FEED_STALL_MS) {
+			log.error(`feed still silent ${silentMin}m after an in-process restart; exiting so the runtime replaces this instance`);
+			notifier.status(`launch-relay: feed dead for ${silentMin}m, restarting the container`).catch(() => {});
+			process.exit(1);
+		}
+		log.warn(`feed silent for ${silentMin}m; restarting sources`);
+		pulse.restarts += 1;
+		lastRestartAt = Date.now();
+		relay.restart();
+	}, 60_000);
+	watchdog.unref();
+
+	// A crash must be a crash. A swallowed error leaves a process that answers
+	// probes and does nothing; a loud exit gets a fresh instance.
+	const crash = (label) => (err) => {
+		log.error(`${label}: ${err?.stack || err}`);
+		process.exit(1);
+	};
+	process.on('uncaughtException', crash('uncaught exception'));
+	process.on('unhandledRejection', crash('unhandled rejection'));
+
 	// Bound before the feed and the notifier are touched. A startup probe is on
 	// a clock, and a slow WebSocket handshake must not read as a dead process.
 	// A managed runtime needs something to probe to know the process is alive,
@@ -503,15 +549,24 @@ async function run(config, opts, mode, { dashboard }) {
 		const { createServer } = await import('node:http');
 		const startedAt = Date.now();
 		health = createServer((req, res) => {
+			const stalled = feedStalled();
 			const body = JSON.stringify({
-				status: 'ok',
+				status: stalled ? 'stalled' : 'ok',
 				mode,
 				target: target.id,
 				chain: target.chain,
 				uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+				feedSilentSeconds: Math.round(feedSilentMs() / 1000),
+				signals: pulse.signals,
+				launches: pulse.launches,
+				failures: pulse.failures,
+				lastLaunchAt: pulse.lastLaunchAt || null,
+				feedRestarts: pulse.restarts,
 				wallets: wallets.list().map((w) => w.address),
 			});
-			res.writeHead(200, { 'content-type': 'application/json' }).end(body);
+			// 503 is what a liveness probe reads as "replace me". A stalled feed
+			// with a healthy process is exactly the state that needs replacing.
+			res.writeHead(stalled ? 503 : 200, { 'content-type': 'application/json' }).end(body);
 		});
 		health.listen(Number(process.env.PORT), '0.0.0.0', () => {
 			log.info(`health endpoint on :${process.env.PORT}`);
@@ -530,6 +585,7 @@ async function run(config, opts, mode, { dashboard }) {
 		relay.stop();
 		telegram?.stop?.();
 		health?.close();
+		clearInterval(watchdog);
 		process.exit(0);
 	};
 	process.on('SIGINT', shutdown);

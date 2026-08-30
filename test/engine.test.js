@@ -304,3 +304,35 @@ describe('createRelay dedupe toggle', () => {
 		expect(target.symbolTaken).not.toHaveBeenCalled();
 	});
 });
+
+describe('liveness', () => {
+	it('reports the last signal time and fires onSignal for every delivery', async () => {
+		const seen = [];
+		const target = fakeTarget();
+		const relay = createRelay({
+			sources: [createManualSource([{ id: 'manual:two', name: 'Two', symbol: 'TWO', imageUrl: 'https://example.com/i.png' }])],
+			target, wallets: fakeWalletPool(), store: createMemoryStore(),
+			logger: nullLogger, rules: { kinds: ['manual'], maxSignalAgeSeconds: null }, mode: 'dry-run',
+			onSignal: (sig) => seen.push(sig.id),
+		});
+		expect(relay.lastSignalAt).toBe(0);
+		const before = Date.now();
+		await relay.runOnce();
+		expect(seen).toContain('manual:two');
+		expect(relay.lastSignalAt).toBeGreaterThanOrEqual(before);
+	});
+
+	it('restart() tears sources down and subscribes them again', () => {
+		let starts = 0, stops = 0;
+		const source = { id: 'probe', start: () => { starts += 1; return () => { stops += 1; }; } };
+		const relay = createRelay({
+			sources: [source], target: fakeTarget(), wallets: fakeWalletPool(), store: createMemoryStore(),
+			logger: nullLogger, rules: { kinds: ['manual'], maxSignalAgeSeconds: null }, mode: 'dry-run',
+		});
+		relay.start();
+		relay.restart();
+		relay.stop();
+		expect(starts).toBe(2);
+		expect(stops).toBe(2);
+	});
+});

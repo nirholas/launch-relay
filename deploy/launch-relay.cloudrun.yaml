@@ -1,0 +1,78 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/ingress-status: all
+    run.googleapis.com/maxScale: '100'
+    run.googleapis.com/urls: '["https://launch-relay-93741856042.us-central1.run.app","https://launch-relay-lp642k3kpa-uc.a.run.app"]'
+  labels:
+    cloud.googleapis.com/location: us-central1
+  name: launch-relay
+  namespace: '93741856042'
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '1'
+        autoscaling.knative.dev/minScale: '1'
+        run.googleapis.com/client-name: gcloud
+        run.googleapis.com/client-version: 580.0.0
+        run.googleapis.com/cpu-throttling: 'false'
+        run.googleapis.com/startup-cpu-boost: 'true'
+      labels:
+        client.knative.dev/nonce: uqaxkouhde
+        run.googleapis.com/startupProbeType: Default
+    spec:
+      containerConcurrency: 80
+      containers:
+      - args:
+        - run
+        - --config
+        - /app/config/launch-relay.config.json
+        - --live
+        - --yes
+        env:
+        - name: LAUNCH_RELAY_ARMED
+          value: '1'
+        - name: LAUNCH_RELAY_EVM_KEYS
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: launch-relay-evm-key
+        image: us-central1-docker.pkg.dev/aerial-vehicle-466722-p5/relay/launch-relay:v6
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 60
+          timeoutSeconds: 5
+          failureThreshold: 3
+        ports:
+        - containerPort: 8080
+          name: http1
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        startupProbe:
+          failureThreshold: 1
+          periodSeconds: 240
+          tcpSocket:
+            port: 8080
+          timeoutSeconds: 240
+        volumeMounts:
+        - mountPath: /data
+          name: ledger
+      serviceAccountName: three-ws@aerial-vehicle-466722-p5.iam.gserviceaccount.com
+      timeoutSeconds: 3600
+      volumes:
+      - csi:
+          driver: gcsfuse.run.googleapis.com
+          volumeAttributes:
+            bucketName: launch-relay-ledger
+        name: ledger
+  traffic:
+  - latestRevision: true
+    percent: 100
