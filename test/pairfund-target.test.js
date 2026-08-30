@@ -251,3 +251,20 @@ describe('stale oracle', () => {
 		expect(err.code).toBe('target-paused');
 	});
 });
+
+describe('partially stale oracle', () => {
+	it('pairs only against markets whose feed is fresh', async () => {
+		const stale = () => { const e = new Error('reverted'); e.signature = '0xeb1fe96e'; throw e; };
+		// Every stock feed except TSLA is stale; the ETH feed is fresh.
+		const wallet = fakeWallet({ publicClient: { readContract: async ({ functionName, args }) => {
+			if (functionName === 'latestRoundData' && args?.length && args[0] !== '0xtsla') return stale();
+			if (functionName === 'latestRoundData') return [0n, 1n, 0n, 0n, 0n];
+			return 500000000000000n;
+		} } });
+		const target = createPairFundTarget({ api: fakeApi(), marketSelector: { strategy: 'random', count: 2 } });
+		const plan = await target.plan(spec(), ctx(wallet));
+		const picked = plan.markets.markets.map((m) => m.symbol);
+		expect(picked).toEqual(['TSLA']);
+		expect(plan.warnings.join(' ')).toMatch(/fresh for only 1 market/);
+	});
+});

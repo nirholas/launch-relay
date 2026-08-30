@@ -26,6 +26,10 @@ const ETH_PRICE_FEED = '0x3258Df8c1F1C9f5BFE83e118Fa343af6217CFc69';
 const STALE_PRICE_SELECTOR = '0xeb1fe96e'; // StalePrice(address,uint256)
 const feedAbi = [{ inputs: [], name: 'latestRoundData', outputs: [{ type: 'uint80' }, { type: 'int256' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'uint80' }], stateMutability: 'view', type: 'function' }];
 
+const PAIR_PRICE_ORACLE = '0xF15F6ff9A1f0eD55b8223A4f0Bd6f9c8c0Ab877b';
+const oracleAbi = [{ inputs: [{ type: 'address' }], name: 'latestRoundData', outputs: [{ type: 'uint80' }, { type: 'int256' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'uint80' }], stateMutability: 'view', type: 'function' }];
+const FRESHNESS_TTL_MS = 60_000;
+
 /** Walk a viem error chain for a revert selector. */
 function revertSelector(err) {
 	for (let e = err, i = 0; e && i < 8; e = e.cause, i++) if (e.signature) return e.signature;
@@ -88,6 +92,28 @@ export function createPairFundTarget(opts = {}) {
 	// times in a contract's life, yet it was read from chain on every launch. A
 	// short TTL keeps a fee change picked up within minutes while taking one RPC
 	// round trip out of the hot path.
+	// Which stock feeds the oracle will currently vouch for. The keeper writes
+	// assets independently, so after an outage they come back one at a time:
+	// pairing against a stale one reverts the whole launch while a fresh one
+	// would have gone through. Selection is therefore restricted to markets
+	// the oracle answers for, re-checked every minute.
+	let freshCache = { at: 0, fresh: null };
+	async function freshMarkets(publicClient, tokens) {
+		if (freshCache.fresh && Date.now() - freshCache.at < FRESHNESS_TTL_MS) return freshCache.fresh;
+		const checks = await Promise.all(tokens.map(async (t) => {
+			try {
+				await publicClient.readContract({ address: PAIR_PRICE_ORACLE, abi: oracleAbi, functionName: 'latestRoundData', args: [t.address] });
+				return t;
+			} catch (err) {
+				if (revertSelector(err) === STALE_PRICE_SELECTOR) return null;
+				throw err;
+			}
+		}));
+		const fresh = checks.filter(Boolean);
+		freshCache = { at: Date.now(), fresh };
+		return fresh;
+	}
+
 	let feeCache = { at: 0, wei: null };
 	async function launchFeeWei(publicClient) {
 		if (feeCache.wei !== null && Date.now() - feeCache.at < LAUNCH_FEE_TTL_MS) return feeCache.wei;
@@ -137,12 +163,11 @@ export function createPairFundTarget(opts = {}) {
 			const publicClient = wallet.publicClient;
 			if (!publicClient) throw new Error('PAIR target needs a wallet handle carrying a viem public client');
 
-			const selection = selector.select(spec, await stockTokens());
-			log.debug('markets', selection.rationale);
-
-			// One cheap read before any upload: if the ETH feed is stale the
-			// launch will revert, and there is no point hosting artwork and a
-			// descriptor for a transaction that cannot be sent.
+			// Cheap reads before any upload: if the ETH feed is stale the launch
+			// will revert, and there is no point hosting artwork and a descriptor
+			// for a transaction that cannot be sent. Stock feeds narrow the
+			// candidate markets rather than failing the launch outright.
+			let tokens = await stockTokens();
 			if (!dryRun) {
 				try {
 					await publicClient.readContract({ address: ETH_PRICE_FEED, abi: feedAbi, functionName: 'latestRoundData' });
@@ -150,7 +175,15 @@ export function createPairFundTarget(opts = {}) {
 					if (revertSelector(err) === STALE_PRICE_SELECTOR) throw oracleStale('ETH/USD feed');
 					throw err;
 				}
+				const fresh = await freshMarkets(publicClient, tokens.filter((t) => t.enabled));
+				if (!fresh.length) throw oracleStale('every stock feed');
+				if (fresh.length < tokens.filter((t) => t.enabled).length) {
+					warnings.push(`oracle is fresh for only ${fresh.length} market(s): ${fresh.map((t) => t.symbol).join(', ')}`);
+				}
+				tokens = fresh;
 			}
+			const selection = selector.select(spec, tokens);
+			log.debug('markets', selection.rationale);
 
 			// Artwork and descriptor. A dry run stays read-only: it neither
 			// uploads an image nor stores a descriptor, so a tuning session does
