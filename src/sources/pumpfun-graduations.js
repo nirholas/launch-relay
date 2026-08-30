@@ -33,6 +33,10 @@ const RECONNECT_MAX_MS = 60_000;
 const SEEN_LIMIT = 5_000;
 const ENRICH_TIMEOUT_MS = 6_000;
 
+// Waits between re-reads of a coin that has graduated but is not yet indexed.
+// Backs off so a genuinely nameless mint costs three cheap reads, not a stall.
+const NAME_RETRY_DELAYS_MS = [1_500, 4_000, 9_000];
+
 /**
  * @param {object} [opts]
  * @param {boolean} [opts.stream]        Use the three.ws SSE rung. Default true.
@@ -318,14 +322,17 @@ export async function enrichSignal(signal, { enrichCreator = false } = {}) {
 	let out = signal;
 
 	if (thin) {
-		const coin = await fetchCoin(signal.address);
-		if (coin && Object.keys(coin).length) {
-			const merged = normalizeGraduation({ ...signal.raw, ...coin, mint: signal.address });
-			// The rung's own timestamp wins: it is when the graduation was
-			// observed, while pump.fun's fields describe the coin, not the
-			// migration.
-			if (merged) out = { ...merged, at: signal.at, id: signal.id, raw: { ...signal.raw, ...coin } };
+		let merged = mergeCoin(signal, await fetchCoin(signal.address));
+		// A graduation reaches the stream the moment the coin migrates, which is
+		// routinely before pump.fun's own API has indexed it: the read comes back
+		// without a name, the mapper rejects the signal as unmappable, and the
+		// source's seen set means it is never reconsidered. The record shows up
+		// seconds later, so wait for it rather than throwing the launch away.
+		for (let i = 0; i < NAME_RETRY_DELAYS_MS.length && !merged?.name; i++) {
+			await sleep(NAME_RETRY_DELAYS_MS[i]);
+			merged = mergeCoin(signal, await fetchCoin(signal.address));
 		}
+		if (merged) out = merged;
 	}
 
 	// No rung carries a creator's launch history, and rules fail closed on
@@ -366,6 +373,20 @@ async function fetchCreatorLaunchCount(creator) {
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * Merge a fetched coin record over a thin signal. The rung's own timestamp
+ * wins: it is when the graduation was observed, while pump.fun's fields
+ * describe the coin, not the migration.
+ *
+ * @returns {import('../types.js').Signal|null} null when there is nothing to merge.
+ */
+function mergeCoin(signal, coin) {
+	if (!coin || !Object.keys(coin).length) return null;
+	const merged = normalizeGraduation({ ...signal.raw, ...coin, mint: signal.address });
+	if (!merged) return null;
+	return { ...merged, at: signal.at, id: signal.id, raw: { ...signal.raw, ...coin } };
 }
 
 async function fetchCoin(mint) {
