@@ -1,0 +1,15 @@
+{
+	"note": "Where the Relay protocol is deployed, per chain id. Written by tools/deploy-protocol.mjs and read by the library, the CLI and the website, so there is one answer to 'which launcher is live' rather than three. An empty entry means the protocol has not been deployed to that chain yet, and everything that depends on it says so rather than pointing at an address that is not there.",
+	"chains": {
+		"4663": {
+			"chain": "Robinhood Chain",
+			"deployedAt": null,
+			"deployer": null,
+			"locker": null,
+			"registry": null,
+			"launcher": null,
+			"adapters": {},
+			"transactions": []
+		}
+	}
+}
