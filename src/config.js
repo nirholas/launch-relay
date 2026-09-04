@@ -17,6 +17,9 @@ import { createManualSource } from './sources/manual.js';
 import { createPumpFunGraduationSource } from './sources/pumpfun-graduations.js';
 import { createPairFundTarget } from './targets/pairfund/index.js';
 import { createPumpFunTarget } from './targets/pumpfun.js';
+import { createRobinhoodVenueTarget } from './chains/robinhood/target.js';
+import { createPoolLaunchTarget } from './chains/robinhood/amm/pool-target.js';
+import { fixedMetadataHost, inlineMetadataHost } from './chains/robinhood/metadata.js';
 import { createEvmWalletPool } from './wallets/evm.js';
 import { createSolanaWalletPool } from './wallets/solana.js';
 
@@ -115,8 +118,40 @@ function buildTarget(cfg = {}, env) {
 				slippageBps: cfg.slippageBps,
 				priorityFeeSol: cfg.priorityFeeSol,
 			});
+		// Any launchpad in the Robinhood Chain catalog, by id or address.
+		case 'venue':
+		case 'robinhood-venue':
+			return createRobinhoodVenueTarget({
+				venue: cfg.venue || cfg.id,
+				rpcUrl: cfg.rpcUrl || env.LAUNCH_RELAY_RPC_URL || undefined,
+				metadata: cfg.metadataUri ? fixedMetadataHost(cfg.metadataUri) : inlineMetadataHost({ maxBytes: cfg.metadataMaxBytes }),
+				creator: cfg.creator,
+				buyAmount: cfg.buyAmount,
+				planTtlMs: cfg.planTtlMs,
+				values: cfg.values,
+			});
+		// Your own pool, on any AMM family the chain runs.
+		case 'pool':
+			return createPoolLaunchTarget({
+				amm: cfg.amm,
+				quote: cfg.quote,
+				poolType: cfg.poolType,
+				fee: cfg.fee,
+				tickSpacing: cfg.tickSpacing,
+				hooks: cfg.hooks,
+				supply: cfg.supply,
+				decimals: cfg.decimals,
+				supplyInPoolPct: cfg.supplyInPoolPct,
+				startPrice: cfg.startPrice,
+				startFdv: cfg.startFdv,
+				quoteAmount: cfg.quoteAmount,
+				rangeMultiple: cfg.rangeMultiple,
+				factory: cfg.factory,
+				stepGas: cfg.stepGas === undefined ? undefined : BigInt(cfg.stepGas),
+				rpcUrl: cfg.rpcUrl || env.LAUNCH_RELAY_RPC_URL || undefined,
+			});
 		default:
-			throw new Error(`unknown target type "${type}" (expected pairfund or pumpfun)`);
+			throw new Error(`unknown target type "${type}" (expected pairfund, venue, pool, or pumpfun)`);
 	}
 }
 

@@ -1,7 +1,7 @@
 {
 	"name": "launch-relay",
 	"version": "0.1.0",
-	"description": "Autonomous, multi-wallet coin launcher. Pluggable event sources (pump.fun graduations on Solana) drive pluggable launchpad targets (PAIR on Robinhood Chain, pump.fun on Solana) through one rules -> plan -> confirm -> execute pipeline.",
+	"description": "Launch a coin on any venue Robinhood Chain runs: PAIR, Virtuals, and every other launchpad discovered on chain, or a Uniswap V2/V3/V4 pool of your own. Pluggable event sources (pump.fun graduations on Solana) drive them through one rules -> plan -> confirm -> execute pipeline.",
 	"type": "module",
 	"license": "Apache-2.0",
 	"author": "nirholas",
@@ -15,15 +15,19 @@
 	"homepage": "https://github.com/nirholas/launch-relay#readme",
 	"keywords": [
 		"launchpad",
-		"pump.fun",
-		"pair.fund",
 		"robinhood-chain",
+		"uniswap-v4",
+		"uniswap-v3",
+		"virtuals-protocol",
+		"pair.fund",
+		"pump.fun",
 		"solana",
 		"evm",
+		"token-launch",
+		"liquidity-pool",
 		"trading-bot",
 		"automation",
-		"multi-wallet",
-		"token-launch"
+		"multi-wallet"
 	],
 	"engines": {
 		"node": ">=20"
@@ -46,16 +50,24 @@
 		"./wallets/solana": "./src/wallets/solana.js",
 		"./store/file": "./src/store/file.js",
 		"./store/memory": "./src/store/memory.js",
-		"./package.json": "./package.json"
+		"./package.json": "./package.json",
+		"./chains/robinhood": "./src/chains/robinhood/target.js",
+		"./chains/robinhood/venues": "./src/chains/robinhood/venues/index.js",
+		"./chains/robinhood/pools": "./src/chains/robinhood/amm/pool-target.js",
+		"./chains/robinhood/contracts": "./src/chains/robinhood/contracts.js",
+		"./chains/robinhood/discover": "./src/chains/robinhood/discover.js"
 	},
 	"files": [
 		"index.d.ts",
 		"src",
 		"bin",
 		"examples",
+		"contracts",
+		"docs",
+		"tools",
 		"README.md",
-		"LICENSE",
-		"tools"
+		"CONTRIBUTING.md",
+		"LICENSE"
 	],
 	"scripts": {
 		"start": "node bin/launch-relay.js run",
@@ -63,7 +75,17 @@
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"lint": "node --check src/index.js",
-		"typecheck": "tsc --noEmit --skipLibCheck index.d.ts"
+		"typecheck": "tsc --noEmit --skipLibCheck index.d.ts",
+		"build:contracts": "node tools/build-contracts.mjs",
+		"rhc:verify": "node tools/verify-addresses.mjs",
+		"rhc:discover": "node tools/discover-venues.mjs",
+		"venues": "node bin/launch-relay.js venues",
+		"docs:venues": "node tools/write-venue-docs.mjs",
+		"contracts:simulate": "node tools/simulate-protocol.mjs",
+		"site:build": "node tools/build-site.mjs",
+		"site:dev": "node tools/build-site.mjs --serve",
+		"site:smoke": "node tools/smoke-site.mjs",
+		"contracts:deploy": "node tools/deploy-protocol.mjs"
 	},
 	"dependencies": {
 		"viem": "^2.52.2"
@@ -73,8 +95,10 @@
 		"bs58": "^6.0.0"
 	},
 	"devDependencies": {
-		"vitest": "^4.1.7",
-		"typescript": "^5.6.0"
+		"esbuild": "^0.28.2",
+		"solc": "^0.8.36",
+		"typescript": "^5.6.0",
+		"vitest": "^4.1.7"
 	},
 	"publishConfig": {
 		"access": "public"

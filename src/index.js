@@ -32,6 +32,34 @@ export { robinhoodChain, ROBINHOOD_CHAIN_ID } from './targets/pairfund/chain.js'
 export { PAIR_LAUNCHPAD_V5, launchpadAbi } from './targets/pairfund/abi.js';
 export { createPumpFunTarget } from './targets/pumpfun.js';
 
+// ── Robinhood Chain: every venue, and pools of your own ──────────────────────
+export { NATIVE, ROBINHOOD_EXPLORER, ROBINHOOD_RPC_URL, tokenUrl } from './chains/robinhood/chain.js';
+export { AMMS, AMM_FORKS, DECIMALS, INFRA, NATIVE_ADDRESS, TOKENS } from './chains/robinhood/contracts.js';
+export { createRobinhoodVenueTarget, mintedToken } from './chains/robinhood/target.js';
+export { createPoolLaunchTarget, encodeDeploy } from './chains/robinhood/amm/pool-target.js';
+export { CATALOG_META, catalog, findVenue, listVenues, requireVenue, venueKinds } from './chains/robinhood/venues/index.js';
+export {
+	CALLER_ROLES, LAUNCH_ROLES, argumentTypes, buildArgs, describeBindings, encodeLaunchCall, verifyDescriptor,
+} from './chains/robinhood/venues/descriptor.js';
+export { KNOWN_VENUES, labelVenues, lookupDex } from './chains/robinhood/venues/labels.js';
+export { VENUE_OVERRIDES, applyOverride } from './chains/robinhood/venues/overrides.js';
+export {
+	PROBE_ACCOUNT, buildDescriptor, classifyLaunchFunction, groupByLauncher, groupsFromTransactions, inferBindings,
+	lookupSignatures, mergeGroups, mintedTokenFromLogs, probeDescriptor, scanMints,
+} from './chains/robinhood/discover.js';
+export { buildDescriptorDocument, fixedMetadataHost, inlineMetadataHost, launchpadMetadataHost, toBase64 } from './chains/robinhood/metadata.js';
+export { clearSlotCache, findErc20Slots, fundOverride, isErc20, mappingSlot, nestedMappingSlot } from './chains/robinhood/erc20-slots.js';
+
+// ── the Relay protocol: contracts, deployment, and launches through them ────
+export {
+	ADAPTERS, ARTIFACTS, PERMANENT, buildDeployment, buildLaunch, predictLaunchToken, simulateSteps,
+} from './chains/robinhood/protocol.js';
+export { default as deployments } from './chains/robinhood/deployments.json' with { type: 'json' };
+export {
+	alignTick, encodeSqrtPriceX96, fullRange, liquidityForAmounts, priceToTick, singleSidedRange, sortTokens,
+	sqrtPriceX96AtTick, tickToPrice,
+} from './chains/robinhood/amm/pool-math.js';
+
 export { createEvmWalletPool } from './wallets/evm.js';
 export { createSolanaWalletPool } from './wallets/solana.js';
 export { pickWallet, STRATEGIES } from './wallets/rotation.js';
@@ -61,6 +89,8 @@ import { createRelay } from './engine.js';
 import { createLogger } from './log.js';
 import { createPumpFunGraduationSource } from './sources/pumpfun-graduations.js';
 import { createPairFundTarget } from './targets/pairfund/index.js';
+import { createRobinhoodVenueTarget } from './chains/robinhood/target.js';
+import { createPoolLaunchTarget } from './chains/robinhood/amm/pool-target.js';
 import { createEvmWalletPool } from './wallets/evm.js';
 import { createFileStore } from './store/file.js';
 
@@ -118,4 +148,85 @@ export const presets = {
 
 		return { relay, target, wallets, source, store, log };
 	},
+
+	/**
+	 * The same flow, aimed at any launchpad in the Robinhood Chain catalog
+	 * instead of PAIR specifically. `launch-relay venues` lists the ids.
+	 *
+	 * @param {object} opts
+	 * @param {string} opts.venue         Catalog id or contract address.
+	 * @param {string} [opts.mnemonic]
+	 * @param {string[]} [opts.privateKeys]
+	 * @param {number} [opts.wallets]
+	 * @param {'dry-run'|'live'} [opts.mode]
+	 * @param {(plan: object) => Promise<boolean>} [opts.confirm]
+	 * @param {object} [opts.metadata]    Metadata host. Defaults to inline data URIs.
+	 * @param {string|number} [opts.buyAmount]
+	 */
+	async pumpfunToRobinhoodVenue(opts = {}) {
+		const target = createRobinhoodVenueTarget({
+			venue: opts.venue,
+			rpcUrl: opts.rpcUrl,
+			metadata: opts.metadata,
+			buyAmount: opts.buyAmount,
+			creator: opts.creator,
+			values: opts.values,
+		});
+		return wireRelay(target, opts);
+	},
+
+	/**
+	 * Relay into a pool you open yourself, with no launchpad in the middle.
+	 *
+	 * @param {object} opts
+	 * @param {'uniswap-v2'|'uniswap-v3'|'uniswap-v4'} [opts.amm]
+	 * @param {string} [opts.quote]
+	 * @param {'full-range'|'single-sided'} [opts.poolType]
+	 * @param {number} [opts.fee]
+	 * @param {string|number} [opts.startFdv]
+	 * @param {string|number} [opts.quoteAmount]
+	 */
+	async pumpfunToPool(opts = {}) {
+		const target = createPoolLaunchTarget({
+			amm: opts.amm,
+			quote: opts.quote,
+			poolType: opts.poolType,
+			fee: opts.fee,
+			supply: opts.supply,
+			startPrice: opts.startPrice,
+			startFdv: opts.startFdv,
+			quoteAmount: opts.quoteAmount,
+			rangeMultiple: opts.rangeMultiple,
+			hooks: opts.hooks,
+			factory: opts.factory,
+			rpcUrl: opts.rpcUrl,
+		});
+		return wireRelay(target, opts);
+	},
 };
+
+/** The wiring every Robinhood Chain preset shares once its target exists. */
+async function wireRelay(target, opts) {
+	const log = opts.logger || createLogger('relay');
+	const wallets = await createEvmWalletPool({
+		chain: target.viemChain,
+		rpcUrl: opts.rpcUrl,
+		mnemonic: opts.mnemonic,
+		privateKeys: opts.privateKeys,
+		count: opts.wallets ?? 3,
+		strategy: opts.strategy,
+	});
+	const store = await createFileStore(opts.ledgerDir || '.ledger');
+	const source = createPumpFunGraduationSource(opts.source);
+	const relay = createRelay({
+		sources: [source], target, wallets, store, logger: log,
+		mode: opts.mode || 'dry-run',
+		confirm: opts.confirm,
+		rules: opts.rules,
+		mapper: opts.mapper,
+		budget: opts.budget,
+		onLaunch: opts.onLaunch,
+		onSkip: opts.onSkip,
+	});
+	return { relay, target, wallets, source, store, log };
+}

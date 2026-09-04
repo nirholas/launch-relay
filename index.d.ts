@@ -630,7 +630,366 @@ declare module 'launch-relay' {
 			onLaunch?(event: unknown): void;
 			onSkip?(event: unknown): void;
 		}): Promise<{ relay: Relay; target: Target; wallets: WalletPool; source: Source; store: Store; log: Logger }>;
+
+		/** pump.fun graduations into any launchpad in the Robinhood Chain catalog. */
+		pumpfunToRobinhoodVenue(opts: {
+			venue: string;
+			mnemonic?: string;
+			privateKeys?: string[];
+			wallets?: number;
+			mode?: 'dry-run' | 'live';
+			confirm?(plan: LaunchPlan): Promise<boolean>;
+			metadata?: MetadataHost;
+			buyAmount?: string | number;
+			creator?: string;
+			rules?: RuleConfig;
+			mapper?: MapperConfig;
+			budget?: BudgetConfig;
+			source?: PumpFunSourceOptions;
+			ledgerDir?: string;
+			rpcUrl?: string;
+			logger?: Logger;
+		}): Promise<{ relay: Relay; target: Target; wallets: WalletPool; source: Source; store: Store; log: Logger }>;
+
+		/** pump.fun graduations into a Uniswap pool you open yourself. */
+		pumpfunToPool(opts?: {
+			amm?: AmmId;
+			quote?: string;
+			poolType?: PoolType;
+			fee?: number;
+			supply?: bigint | number | string;
+			startPrice?: string | number;
+			startFdv?: string | number;
+			quoteAmount?: string | number;
+			rangeMultiple?: number;
+			hooks?: string;
+			factory?: string;
+			mnemonic?: string;
+			privateKeys?: string[];
+			wallets?: number;
+			mode?: 'dry-run' | 'live';
+			confirm?(plan: LaunchPlan): Promise<boolean>;
+			rules?: RuleConfig;
+			mapper?: MapperConfig;
+			budget?: BudgetConfig;
+			source?: PumpFunSourceOptions;
+			ledgerDir?: string;
+			rpcUrl?: string;
+			logger?: Logger;
+		}): Promise<{ relay: Relay; target: Target; wallets: WalletPool; source: Source; store: Store; log: Logger }>;
 	};
+
+	// ── Robinhood Chain: venues, pools, discovery ────────────────────────────
+
+	/** A field of a venue's launch call that this toolkit fills in rather than replays. */
+	export type LaunchRole =
+		| 'name' | 'symbol' | 'description' | 'imageUrl' | 'metadataUri' | 'metadataHash'
+		| 'twitter' | 'telegram' | 'website' | 'discord' | 'creator' | 'salt'
+		| 'quoteToken' | 'buyAmount';
+
+	export interface VenueBinding {
+		role: LaunchRole;
+		/** Index path into the decoded argument tree. */
+		path: number[];
+		/** ABI type of the leaf at that path. */
+		type: string;
+	}
+
+	/**
+	 * How to call one launchpad, learned from a transaction that already
+	 * launched a token on it. `launch.template` is that transaction's decoded
+	 * arguments; a launch replaces the bound leaves and replays the rest.
+	 */
+	export interface VenueDescriptor {
+		id: string;
+		label: string | null;
+		address: string;
+		chainId: 4663;
+		kind: string;
+		selector: string;
+		usable: boolean;
+		/** Present when `usable` is false: why this venue cannot be driven. */
+		reason?: string;
+		implementation?: string | null;
+		url?: string | null;
+		labelSource?: 'curated' | 'geckoterminal' | 'none';
+		labelEvidence?: string;
+		overrideReason?: string;
+		quote?: { token: string; symbol: string; decimals: number } | null;
+		approval?: { spenderIsVenue?: boolean; amountRole?: LaunchRole } | null;
+		observed: { launches: number; firstBlock: number; lastBlock: number };
+		/** Present when the catalog was built with --simulate. */
+		liveCheck?: { ok: boolean; checkedAt: string; reason?: string; revert?: string };
+		probe?: { ok: boolean; account: string; at?: string; accepted?: LaunchRole[]; rejected?: Array<{ role: string; path: number[]; revert: string | null; detail: string; note?: string }> };
+		/** More than one non-zero bytes32 argument: only a probe can tell which is a salt. */
+		ambiguousSalt?: number;
+		launch: {
+			signature: string;
+			selector: string;
+			/** Wei sent with the call: the floor observed across every launch seen. */
+			value: string;
+			valueObserved?: { min: string; max: string; samples: number };
+			template: unknown[];
+			bindings: VenueBinding[];
+		};
+		/** What a live simulation proved about this venue's substitutable fields. */
+		probe?: {
+			ok: boolean;
+			account: string;
+			at?: string;
+			accepted?: LaunchRole[];
+			revert?: string | null;
+			rejected?: Array<{ role: LaunchRole; path: number[]; revert: string | null; detail?: string; note?: string }>;
+		};
+		liveCheck?: { ok: boolean; reason?: string; checkedAt: string; revert?: string };
+		evidence: {
+			txHash: string;
+			blockNumber: number;
+			token: string;
+			name: string | null;
+			symbol: string | null;
+			decimals: number | null;
+			creator: string;
+			input: string;
+			/** Bytes appended after the ABI payload by the original caller, never replayed. */
+			trailer?: string;
+		};
+	}
+
+	export const catalog: {
+		chainId: 4663;
+		chain: string;
+		generatedAt: string;
+		window: { fromBlock: number; toBlock: number };
+		tokensScanned: number;
+		venues: VenueDescriptor[];
+	};
+	export const CATALOG_META: { generatedAt: string; window: { fromBlock: number; toBlock: number }; tokensScanned: number; chainId: 4663 };
+	export function listVenues(filter?: { kind?: string; usable?: boolean; minLaunches?: number }): readonly VenueDescriptor[];
+	export function findVenue(idOrAddress: string): VenueDescriptor | null;
+	/** Like `findVenue`, but throws on anything a launch cannot be built from. */
+	export function requireVenue(idOrAddress: string): VenueDescriptor;
+	export function venueKinds(): string[];
+
+	export function verifyDescriptor(descriptor: VenueDescriptor): { ok: boolean; reason?: string; encoded?: string; expected?: string };
+	export function buildArgs(descriptor: VenueDescriptor, values?: Partial<Record<LaunchRole, unknown>>): unknown[];
+	export function encodeLaunchCall(descriptor: VenueDescriptor, values?: Partial<Record<LaunchRole, unknown>>): {
+		address: string; abi: readonly unknown[]; functionName: string; args: unknown[]; value: bigint; data: string;
+	};
+	export function describeBindings(descriptor: VenueDescriptor): string[];
+	export function argumentTypes(signature: string): string[];
+	export const LAUNCH_ROLES: readonly LaunchRole[];
+	export const CALLER_ROLES: readonly LaunchRole[];
+
+	/** Where a launched token's descriptor document lives. */
+	export interface MetadataHost {
+		id: string;
+		publish(spec: LaunchSpec): Promise<{ metadataURI: string; metadataHash: string; imageUrl: string | null; hosted?: boolean }>;
+	}
+	export function inlineMetadataHost(opts?: { maxBytes?: number }): MetadataHost;
+	export function fixedMetadataHost(uri: string): MetadataHost;
+	export function launchpadMetadataHost(opts: { api: { uploadMetadata: Function; mirrorImage?: Function }; mirrorImage?: boolean }): MetadataHost;
+	export function buildDescriptorDocument(spec: LaunchSpec): Record<string, string>;
+
+	/** Drive any launchpad in the catalog. */
+	export function createRobinhoodVenueTarget(opts: {
+		venue: string | VenueDescriptor;
+		rpcUrl?: string;
+		metadata?: MetadataHost;
+		planTtlMs?: number;
+		creator?: string;
+		buyAmount?: string | number;
+		values?: Partial<Record<LaunchRole, unknown>>;
+		publicClient?: unknown;
+	}): Target;
+
+	export type AmmId = 'uniswap-v2' | 'uniswap-v3' | 'uniswap-v4';
+	export type PoolType = 'full-range' | 'single-sided';
+
+	/** Deploy a fixed-supply token and open its pool yourself. */
+	export function createPoolLaunchTarget(opts?: {
+		amm?: AmmId;
+		quote?: string;
+		poolType?: PoolType;
+		fee?: number;
+		tickSpacing?: number;
+		hooks?: string;
+		supply?: bigint | number | string;
+		decimals?: number;
+		supplyInPoolPct?: number;
+		startPrice?: string | number;
+		startFdv?: string | number;
+		quoteAmount?: string | number;
+		rangeMultiple?: number;
+		factory?: string;
+		rpcUrl?: string;
+		stepGas?: bigint;
+		deadlineSeconds?: number;
+		publicClient?: unknown;
+	}): Target;
+
+	export const TOKENS: { readonly WETH: string; readonly USDG: string; readonly VIRTUAL: string };
+	export const INFRA: { readonly PERMIT2: string; readonly MULTICALL3: string; readonly ENTRY_POINT_V07: string };
+	export const AMMS: Record<AmmId, Record<string, unknown>>;
+	export const AMM_FORKS: { readonly v2: readonly string[]; readonly v3: readonly string[] };
+	export const NATIVE_ADDRESS: string;
+
+	// Pool arithmetic, exported because a caller pricing a launch needs it too.
+	export function encodeSqrtPriceX96(amount1: bigint, amount0: bigint): bigint;
+	export function sqrtPriceX96AtTick(tick: number): bigint;
+	export function priceToTick(price: number): number;
+	export function tickToPrice(tick: number): number;
+	export function alignTick(tick: number, spacing: number, direction?: 'down' | 'up' | 'nearest'): number;
+	export function fullRange(spacing: number): { tickLower: number; tickUpper: number };
+	export function singleSidedRange(opts: { currentTick: number; spacing: number; multiple?: number }): { tickLower: number; tickUpper: number };
+	export function liquidityForAmounts(opts: {
+		sqrtPriceX96: bigint; sqrtPriceLowerX96: bigint; sqrtPriceUpperX96: bigint; amount0: bigint; amount1: bigint;
+	}): bigint;
+	export function sortTokens(tokenA: string, tokenB: string): { token0: string; token1: string; flipped: boolean };
+
+	// Rebuilding the catalog.
+	export function scanMints(opts: { client: unknown; fromBlock: bigint; toBlock: bigint; chunk?: bigint; onProgress?(msg: string): void }): Promise<Array<{ token: string; txHash: string; blockNumber: bigint }>>;
+	export function groupByLauncher(opts: { client: unknown; mints: unknown[]; onProgress?(msg: string): void }): Promise<unknown[]>;
+	export function groupsFromTransactions(opts: { client: unknown; txHashes: string[]; onProgress?(msg: string): void }): Promise<unknown[]>;
+	export function mergeGroups(...sets: unknown[][]): unknown[];
+	export function lookupSignatures(selectors: string[], opts?: { fetchImpl?: typeof fetch; overrides?: Record<string, string> }): Promise<Record<string, string | null>>;
+	export function buildDescriptor(opts: { client: unknown; group: unknown; signature: string | null; id?: string; label?: string }): Promise<VenueDescriptor>;
+	export function inferBindings(opts: { args: unknown[]; types: string[]; facts: { name?: string; symbol?: string; creator?: string } }): VenueBinding[];
+	export function labelVenues(descriptors: VenueDescriptor[], opts?: { fetchImpl?: typeof fetch | null; onProgress?(msg: string): void; delayMs?: number }): Promise<VenueDescriptor[]>;
+	export function lookupDex(token: string, opts?: { fetchImpl?: typeof fetch }): Promise<{ id: string; name: string } | null>;
+	export function mintedToken(receipt: { logs?: Array<{ address: string; topics: string[]; data: string }> }): string | null;
+	export function mintedTokenFromLogs(logs: Array<{ address: string; topics: string[]; data: string }>): string | null;
+	export function classifyLaunchFunction(signature: string): { launch: boolean; reason?: string };
+	export const PROBE_ACCOUNT: string;
+	/**
+	 * Test every substitution a descriptor claims to support against the live
+	 * contract, keeping the ones it accepts and pruning the ones it reverts on.
+	 * Runs entirely inside `eth_call` with a balance state override: nothing is
+	 * signed and no funds are needed.
+	 */
+	export function probeDescriptor(opts: { client: unknown; descriptor: VenueDescriptor; account?: string }): Promise<VenueDescriptor & {
+		probe?: { ok: boolean; account: string; at?: string; accepted?: LaunchRole[]; rejected?: Array<{ role: string; path: number[]; revert: string | null; detail: string; note?: string }> };
+	}>;
+	/**
+	 * Prove, one binding at a time, that a venue really accepts the fields the
+	 * descriptor claims to fill in. Prunes the ones it refuses and records why.
+	 */
+	export function probeDescriptor(opts: { client: unknown; descriptor: VenueDescriptor; account?: string }): Promise<VenueDescriptor>;
+	export const PROBE_ACCOUNT: string;
+
+	// ── the Relay protocol ───────────────────────────────────────────────────
+
+	/** A lock that never opens. Mirrors LiquidityLocker.PERMANENT. */
+	export const PERMANENT: bigint;
+
+	export interface ContractArtifact {
+		contract: string;
+		source: string;
+		compiler: string;
+		abi: readonly unknown[];
+		bytecode: string;
+	}
+
+	export const ARTIFACTS: {
+		launchToken: ContractArtifact;
+		liquidityLocker: ContractArtifact;
+		launchRegistry: ContractArtifact;
+		relayLauncher: ContractArtifact;
+		uniswapV2Adapter: ContractArtifact;
+		uniswapV3Adapter: ContractArtifact;
+	};
+	export const ADAPTERS: Record<AmmId, { artifact: ContractArtifact; label: string; args(): string[] }>;
+
+	export interface DeploymentStep {
+		label: string;
+		kind: 'deploy' | 'call';
+		to?: string;
+		from?: string;
+		data: string;
+		value: bigint;
+		gas: bigint;
+	}
+
+	/** Every address a deployment will produce, known before the first transaction. */
+	export function buildDeployment(opts: {
+		deployer: string;
+		owner?: string;
+		feeCollector?: string;
+		amms?: AmmId[];
+		nonce?: number | bigint;
+	}): {
+		addresses: { locker: string; registry: string; launcher: string; adapters: Record<string, string> };
+		steps: DeploymentStep[];
+	};
+
+	/** Turn a description of a launch into the struct RelayLauncher takes. */
+	export function buildLaunch(opts: {
+		launcher: string;
+		creator: string;
+		adapter: string;
+		amm: AmmId;
+		token: { name: string; symbol: string; metadataURI?: string; decimals?: number; supply?: bigint };
+		salt: string;
+		pool?: {
+			type?: PoolType;
+			fee?: number;
+			quote?: string;
+			quoteAmount?: bigint;
+			startFdv?: number;
+			startPrice?: number;
+			rangeMultiple?: number;
+			supplyToPoolPct?: number;
+		};
+		unlockAt?: bigint | number;
+		feeRecipient?: string;
+	}): { tokenAddress: string; describe: string; params: Record<string, unknown>; nativeValue: bigint };
+
+	export function predictLaunchToken(opts: {
+		launcher: string;
+		creator: string;
+		salt: string;
+		token: { name: string; symbol: string; decimals: number; supply: bigint; metadataURI: string };
+	}): string;
+
+	/** Run a sequence of transactions on top of the current block without sending them. */
+	export function simulateSteps(opts: {
+		client: unknown;
+		from: string;
+		steps: DeploymentStep[];
+		balance?: bigint;
+		stateOverrides?: Record<string, object>;
+		retries?: number;
+	}): Promise<{
+		ok: boolean;
+		gasUsed: number;
+		results: Array<{ label: string; ok: boolean; gasUsed: number; codeSize: number | null; returnData: string; logs: unknown[]; error: string | null; revertData: string | null }>;
+	}>;
+
+	export const deployments: {
+		note: string;
+		chains: Record<string, {
+			chain: string;
+			deployedAt: string | null;
+			deployer: string | null;
+			locker: string | null;
+			registry: string | null;
+			launcher: string | null;
+			adapters: Record<string, string>;
+			transactions: Array<{ label: string; hash: string }>;
+		}>;
+	};
+
+	// ── measuring an ERC-20's storage layout ─────────────────────────────────
+
+	export function findErc20Slots(opts: { client: unknown; token: string; holder: string; spender: string; maxSlot?: number }):
+		Promise<{ balanceSlot: number | null; allowanceSlot: number | null }>;
+	export function fundOverride(opts: { client: unknown; token: string; holder: string; spender: string; amount?: bigint }):
+		Promise<Array<{ address: string; stateDiff: Array<{ slot: string; value: string }> }>>;
+	export function mappingSlot(holder: string, slot: number): string;
+	export function nestedMappingSlot(owner: string, spender: string, slot: number): string;
+	export function isErc20(client: unknown, address: string): Promise<boolean>;
+	export function clearSlotCache(): void;
+	export function toBase64(text: string): string;
 
 	// ── chain constants ──────────────────────────────────────────────────────
 

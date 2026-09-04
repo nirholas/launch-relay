@@ -30,6 +30,10 @@ import { buildTransports, createNotifier } from '../src/notify/index.js';
 import { createStandingApproval, createTelegramApproval, createTerminalApproval, requireAll } from '../src/approvals.js';
 import { createDashboard } from '../src/tui.js';
 import { renderBacktest, renderFees, renderPlan, renderPositions } from '../src/report.js';
+import { CATALOG_META, findVenue, listVenues, venueKinds } from '../src/chains/robinhood/venues/index.js';
+import { describeBindings } from '../src/chains/robinhood/venues/descriptor.js';
+import { AMMS, TOKENS } from '../src/chains/robinhood/contracts.js';
+import { createManualSource } from '../src/sources/manual.js';
 
 const USAGE = `launch-relay - watch one venue, launch on another, from a pool of wallets
 
@@ -42,6 +46,13 @@ Prove it
   feed [--limit n]          Recent signals and how the rules judge each one
   plan [--mint <addr>]      Build and price one launch without sending it
   markets                   List the launchpad's pairing markets
+
+Robinhood Chain
+  venues [--kind k]         Every launch venue discovered on chain, and what it takes
+  venue <id|address>        One venue in full: its ABI, its bindings, its anchor launch
+  pools                     Pool shapes you can open yourself, and the quotes available
+  launch --name .. --symbol ..
+                            Launch one coin on a chosen venue or your own pool
 
 Run it
   run [--once]              Run the relay
@@ -59,8 +70,21 @@ Options
   --live                Spend real funds. Requires LAUNCH_RELAY_ARMED=1
   --yes                 Standing approval for every launch the budget permits
   --telegram            Approve each launch from Telegram instead of the terminal
+  --telegram-url <url>  Telegram link to put on the launched token
   --limit <n>           Row limit
   --mint <address>      Target one specific source coin
+  --venue <id>          Robinhood Chain venue to launch on, from the venues list
+  --amm <id>            Open your own pool instead: uniswap-v2, uniswap-v3, uniswap-v4
+  --quote <sym>         Quote asset for a pool launch (ETH, WETH, USDG, VIRTUAL, or an address)
+  --pool-type <t>       full-range or single-sided
+  --fee <n>             Pool fee in hundredths of a bip (10000 = 1%)
+  --start-fdv <n>       Opening valuation of the whole supply, in quote units
+  --quote-amount <n>    Quote to deposit into a two-sided pool
+  --name <text>         Token name for the launch command
+  --symbol <text>       Token symbol for the launch command
+  --image <url>         Token image for the launch command
+  --description <text>  Token description for the launch command
+  --buy <n>             Opening buy in the venue's quote asset
   --target <amount>     Per-wallet target balance for fund
   --from <address>      Source wallet for fund
   --json                Machine-readable output where supported
@@ -80,6 +104,9 @@ Environment
 Examples
   launch-relay backtest --limit 500
   launch-relay run --once
+  launch-relay venues --kind bonding-curve
+  launch-relay launch --venue virtuals --name "Loop Rat" --symbol LOOPRAT
+  launch-relay launch --amm uniswap-v3 --quote WETH --pool-type single-sided --start-fdv 2 --name Frog --symbol FROG
   LAUNCH_RELAY_ARMED=1 launch-relay run --live --telegram
 `;
 
@@ -108,6 +135,10 @@ async function main(command, opts) {
 		case 'doctor': return doctor(config);
 		case 'wallets': return listWallets(config);
 		case 'markets': return listMarkets(config);
+		case 'venues': return listVenueCatalog(opts);
+		case 'venue': return showVenue(opts);
+		case 'pools': return listPools(opts);
+		case 'launch': return launchOne(config, opts, mode);
 		case 'feed': return feed(config, opts);
 		case 'plan': return planOne(config, opts);
 		case 'backtest': return runBacktest(config, opts);
@@ -123,6 +154,173 @@ async function main(command, opts) {
 			process.exitCode = 1;
 			return undefined;
 	}
+}
+
+// ── Robinhood Chain ──────────────────────────────────────────────────────────
+
+async function listVenueCatalog(opts) {
+	const venues = listVenues(opts.kind ? { kind: opts.kind } : {});
+	if (opts.json) {
+		process.stdout.write(`${JSON.stringify({ meta: CATALOG_META, venues }, null, 2)}\n`);
+		return;
+	}
+	if (!venues.length) {
+		process.stdout.write(`no venues${opts.kind ? ` of kind "${opts.kind}"` : ''} in the catalog. Kinds: ${venueKinds().join(', ')}\n`);
+		return;
+	}
+	const scanned = CATALOG_META.window
+		? `blocks ${CATALOG_META.window.fromBlock}-${CATALOG_META.window.toBlock}`
+		: 'an unrecorded window';
+	process.stdout.write(`Robinhood Chain launch venues, learned from ${scanned} on ${CATALOG_META.generatedAt || 'an unrecorded date'}\n\n`);
+	const rows = venues.map((venue) => [
+		venue.liveCheck ? (venue.liveCheck.ok ? 'live' : 'x') : (venue.usable ? 'ok' : '--'),
+		venue.id,
+		venue.label || '',
+		String(venue.observed?.launches ?? 0),
+		venue.kind,
+		venue.usable
+			? `${venue.launch.signature.split('(')[0]}${venue.liveCheck && !venue.liveCheck.ok ? ` (reverts: ${truncate(venue.liveCheck.revert || venue.liveCheck.reason, 34)})` : ''}`
+			: truncate(venue.reason || '', 52),
+	]);
+	writeTable(['', 'id', 'venue', 'seen', 'kind', 'launch fn / why not'], rows);
+	const live = venues.filter((v) => v.liveCheck?.ok).length;
+	process.stdout.write(`\n${venues.filter((v) => v.usable).length} of ${venues.length} are launchable`);
+	process.stdout.write(live ? `, ${live} verified by simulating a real launch against current state.\n` : '.\n');
+	process.stdout.write('launch-relay venue <id> for the detail.\n');
+}
+
+async function showVenue(opts) {
+	const id = opts._[1] || opts.venue;
+	if (!id) throw new Error('usage: launch-relay venue <id|address>');
+	const venue = findVenue(id);
+	if (!venue) throw new Error(`no venue "${id}" in the catalog; run launch-relay venues`);
+	if (opts.json) {
+		process.stdout.write(`${JSON.stringify(venue, null, 2)}\n`);
+		return;
+	}
+	const out = [
+		`${venue.label || venue.id}  (${venue.id})`,
+		`  contract      ${venue.address}${venue.implementation ? ` behind proxy, implementation ${venue.implementation}` : ''}`,
+		`  kind          ${venue.kind}`,
+		`  observed      ${venue.observed?.launches ?? 0} launch(es), blocks ${venue.observed?.firstBlock}-${venue.observed?.lastBlock}`,
+		`  named by      ${venue.labelSource || 'none'}${venue.labelEvidence ? `: ${venue.labelEvidence}` : ''}`,
+	];
+	if (!venue.usable) {
+		out.push(`  NOT LAUNCHABLE ${venue.reason}`);
+		process.stdout.write(`${out.join('\n')}\n`);
+		return;
+	}
+	out.push(
+		`  launch fn     ${venue.launch.signature}`,
+		`  launch fee    ${formatUnits(BigInt(venue.launch.value), 18)} ETH${venue.launch.valueObserved && venue.launch.valueObserved.max !== venue.launch.valueObserved.min ? ` (observed up to ${formatUnits(BigInt(venue.launch.valueObserved.max), 18)} ETH, which includes creator buys)` : ''}`,
+	);
+	if (venue.quote) out.push(`  quote asset   ${venue.quote.symbol} ${venue.quote.token}`);
+	if (venue.liveCheck) {
+		out.push(venue.liveCheck.ok
+			? `  live check    a real launch simulated against chain state on ${venue.liveCheck.checkedAt.slice(0, 10)}`
+			: `  live check    REVERTS: ${venue.liveCheck.reason}`);
+	}
+	if (venue.overrideReason) out.push(`  curated       ${venue.overrideReason}`);
+	out.push('  fields this toolkit fills in:');
+	for (const line of describeBindings(venue)) out.push(`    ${line}`);
+	// A pruned field is the most useful thing the probe produces: it says the
+	// venue refused to let a launch change that argument, and names the error.
+	// "argument 0.8 is replayed, randomising it reverts with
+	// LaunchEconomicsMismatch" tells a reader it is a commitment, not a salt.
+	for (const rejected of venue.probe?.rejected || []) {
+		out.push(`    replayed      arg ${rejected.path.join('.')} looked like the ${rejected.role}, but the venue rejects a new value${rejected.revert ? ` (${rejected.revert})` : ''}`);
+	}
+	out.push(
+		`  anchor        ${venue.evidence.txHash}`,
+		`                launched ${venue.evidence.name || '?'} (${venue.evidence.symbol || '?'}) at ${venue.evidence.token}`,
+	);
+	process.stdout.write(`${out.join('\n')}\n`);
+}
+
+async function listPools(opts) {
+	if (opts.json) {
+		process.stdout.write(`${JSON.stringify({ amms: AMMS, quotes: TOKENS }, null, 2)}\n`);
+		return;
+	}
+	process.stdout.write('Pool shapes you can open yourself on Robinhood Chain\n\n');
+	writeTable(
+		['amm', 'pool types', 'fees', 'entry point'],
+		[
+			['uniswap-v2', 'full-range', '0.30% fixed', AMMS['uniswap-v2'].router],
+			['uniswap-v3', 'full-range, single-sided', Object.keys(AMMS['uniswap-v3'].feeTiers).map((f) => `${Number(f) / 10_000}%`).join(' '), AMMS['uniswap-v3'].positionManager],
+			['uniswap-v4', 'full-range, single-sided, hooked', Object.keys(AMMS['uniswap-v4'].feeTiers).map((f) => `${Number(f) / 10_000}%`).join(' '), AMMS['uniswap-v4'].positionManager],
+		],
+	);
+	process.stdout.write(`\nquote assets   ETH (native), ${Object.entries(TOKENS).map(([k, v]) => `${k} ${v}`).join(', ')}\n`);
+	process.stdout.write('               plus any ERC-20 address, including this chain\'s tokenized stocks\n');
+	process.stdout.write('\nsingle-sided opens a pool with no quote deposit: the whole supply is offered\n');
+	process.stdout.write('for sale from the starting price upward. Two-sided needs quoteAmount.\n');
+}
+
+/**
+ * One launch, on a venue or on a pool of your own, from the command line.
+ *
+ * It runs the same pipeline the relay does, with a manual source of exactly
+ * one signal, so the budget, the approval prompt, the ledger and the dry-run
+ * default all behave identically to an automated launch.
+ */
+async function launchOne(config, opts, mode) {
+	if (!opts.name || !opts.symbol) throw new Error('launch needs --name and --symbol');
+	const target = opts.amm
+		? { type: 'pool', amm: opts.amm, quote: opts.quote, poolType: opts.poolType, fee: opts.fee ? Number(opts.fee) : undefined, startFdv: opts.startFdv, startPrice: opts.startPrice, quoteAmount: opts.quoteAmount, supply: opts.supply, rangeMultiple: opts.rangeMultiple ? Number(opts.rangeMultiple) : undefined }
+		: { type: 'venue', venue: opts.venue || 'pair', buyAmount: opts.buy };
+	if (!opts.amm && !opts.venue) {
+		throw new Error('launch needs either --venue <id> (see launch-relay venues) or --amm <id> (see launch-relay pools)');
+	}
+
+	const entry = {
+		id: `cli-${opts.symbol}-${Date.now()}`,
+		kind: 'manual',
+		name: opts.name,
+		symbol: opts.symbol,
+		description: opts.description || '',
+		imageUrl: opts.image || null,
+		links: { twitter: opts.twitter || null, telegram: opts.telegramUrl || null, website: opts.website || null },
+	};
+
+	// Feed rules exist to thin a firehose nobody asked for. This coin was asked
+	// for by name, so they are off: filtering it would only ever be the tool
+	// refusing an instruction. The budget, the approval and the ledger all
+	// still apply, because those bound what a yes costs rather than what
+	// reaches a yes.
+	const merged = {
+		...config,
+		target,
+		source: { type: 'manual', entries: [entry] },
+		rules: { kinds: ['manual'], requireImage: false, requireSocials: 'none', maxSignalAgeSeconds: undefined, denyWords: [], symbolAllow: [], symbolDeny: [], creatorDeny: [] },
+		budget: { ...config.budget, maxLaunchesPerHour: 1, maxLaunchesPerDay: 1 },
+	};
+	// The same approval path a relayed launch takes: a typed yes at the
+	// terminal, a tap in Telegram, or an explicit --yes. A dry run needs none
+	// of them, and asking for one would teach the habit of saying yes.
+	const { relay, target: built } = await buildRelay(merged, {
+		logger: log,
+		mode,
+		confirm: mode === 'live'
+			? buildApprover(opts, buildTransports(config.notify, process.env).find((t) => typeof t.ask === 'function'))
+			: undefined,
+	});
+	process.stdout.write(`launching on ${built.id} (${mode})\n`);
+	await relay.runOnce();
+}
+
+function writeTable(headers, rows) {
+	const widths = headers.map((h, i) => Math.max(h.length, ...rows.map((r) => String(r[i] ?? '').length)));
+	const line = (cells) => `${cells.map((c, i) => String(c ?? '').padEnd(widths[i])).join('  ').trimEnd()}\n`;
+	process.stdout.write(line(headers));
+	process.stdout.write(`${widths.map((w) => '-'.repeat(w)).join('  ')}\n`);
+	for (const row of rows) process.stdout.write(line(row));
+}
+
+// A function declaration, not a const: `main` is awaited at the top of this
+// file, so anything it reaches must already be initialised when it runs.
+function truncate(value, max) {
+	return value.length > max ? `${value.slice(0, max - 3)}...` : value;
 }
 
 // ── prove it ─────────────────────────────────────────────────────────────────
@@ -679,8 +877,14 @@ function parseArgs(argv) {
 		const arg = argv[i];
 		if (!arg.startsWith('--')) { out._.push(arg); continue; }
 		const key = arg.slice(2);
-		const takesValue = ['config', 'limit', 'mint', 'target', 'from'].includes(key);
-		if (takesValue) out[key] = argv[++i];
+		const takesValue = [
+			'config', 'limit', 'mint', 'target', 'from',
+			// Robinhood Chain launching.
+			'venue', 'kind', 'amm', 'quote', 'pool-type', 'fee', 'start-fdv', 'start-price',
+			'quote-amount', 'range-multiple', 'supply', 'buy', 'name', 'symbol', 'image',
+			'description', 'twitter', 'telegram-url', 'website',
+		].includes(key);
+		if (takesValue) out[camel(key)] = argv[++i];
 		else out[camel(key)] = true;
 	}
 	return out;
