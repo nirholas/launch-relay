@@ -287,6 +287,10 @@ you can evaluate the whole thing before funding anything.
 touch ./HALT   # every further launch stops at the budget check, immediately
 ```
 
+The path is whatever `killSwitchFile` says, so it has to be somewhere you can
+still reach once the relay is running. On a deployment that means the persistent
+volume, not the container's own disk: see [deploy/README.md](deploy/README.md).
+
 **Rules fail closed.** A threshold whose input could not be read rejects the
 signal. A coin whose market cap is unknown is not "under the cap", it is
 unknown, and a bound that silently stops applying is worse than no bound.

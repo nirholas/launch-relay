@@ -44,7 +44,7 @@
 		"maxSpendPerLaunch": "0.0025",
 		"maxSpendPerDay": "1.0",
 		"minWalletReserve": "0.001",
-		"killSwitchFile": "./HALT"
+		"killSwitchFile": "/data/HALT"
 	},
 	"store": {
 		"dir": "/data"
