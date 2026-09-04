@@ -1,24 +1,29 @@
 # launch-relay
 
-**Watch one venue, launch on another, from a pool of wallets.** With a backtester
-that refuses to lie to you, and an approval flow that lets a bot run unattended
-without handing it a blank cheque.
-
-A coin bonds on pump.fun. Seconds later a paired token for it exists on
-[PAIR](https://pair.fund), deployed from a rotating wallet, priced against the
-Robinhood Stock Token that actually fits the coin, with a launch plan that a
-human approved from their phone. None of that is hardcoded: sources, launchpads,
-chains, rotation, filtering, naming, and pairing are all adapters behind one
-pipeline.
+**Launch a coin on anything Robinhood Chain runs.** Every launchpad on the
+chain, learned from the chain itself. Uniswap V2, V3 and V4 pools you open
+yourself, on any quote asset the chain has. And a relay that can drive any of
+them automatically off an event somewhere else entirely.
 
 ```
-pump.fun graduation ─→ rules ─→ spec ─→ wallet ─→ plan ─→ budget ─→ approval ─→ PAIR launch
-    (Solana)                                                          (phone)    (Robinhood Chain)
+                          ┌─ PAIR .......... stock-paired V4 pools
+                          ├─ Virtuals ...... VIRTUAL-quoted bonding curve
+ pump.fun graduation      ├─ Pons, Clanker, and every other launchpad
+    (Solana)         ─→   │  discovery found on chain
+        or               ├─ your own Uniswap V2 pool
+ launch-relay launch      ├─ your own V3 position, full range or one-sided
+    (by hand)             └─ your own V4 pool, with a hook if you want one
 ```
+
+Robinhood Chain has dozens of launchpads and almost none of them publish an
+ABI. So this toolkit does not ask them. It reads the chain, finds every
+contract that has ever minted a token's supply, and learns how to call each one
+from a transaction that already worked. What it cannot verify, it will not
+drive. [How that works](#the-venue-catalog).
 
 **It does not spend money by default.** Dry run is the default mode, live mode
-needs a deliberate out-of-band arm, and every launch is priced in full before
-anything is signed. See [Safety](#safety).
+needs a deliberate out-of-band arm, and every launch is priced and simulated in
+full before anything is signed. See [Safety](#safety).
 
 ---
 
@@ -26,6 +31,11 @@ anything is signed. See [Safety](#safety).
 
 - [Install](#install)
 - [Quick start](#quick-start)
+- [Where you can launch](#where-you-can-launch)
+- [The venue catalog](#the-venue-catalog)
+- [Pools of your own](#pools-of-your-own)
+- [The Relay protocol](#the-relay-protocol)
+- [The website](#the-website)
 - [Backtest before you fund anything](#backtest-before-you-fund-anything)
 - [Approve from your phone](#approve-from-your-phone)
 - [The dashboard](#the-dashboard)
@@ -396,6 +406,355 @@ the blockhash is never refreshed, because pump.fun's mint keypair signed over it
 replacing it would invalidate that signature. An expired plan is a re-plan, not a
 retry, and it says so.
 
+## Where you can launch
+
+```bash
+npx launch-relay venues          # every launchpad discovery found on chain
+npx launch-relay venue virtuals  # one venue in full: ABI, bindings, anchor launch
+npx launch-relay pools           # pool shapes you can open without a launchpad
+```
+
+`venues` prints what the chain actually does, ranked by how many tokens each
+contract has really launched:
+
+```
+      id                    venue              seen  kind             launch fn / why not
+----  --------------------  -----------------  ----  ---------------  -----------------------------------
+x     pons-v2               Pons V2             708  launchpad        a substituted launch reverts with...
+live  pons-v2-launch-token  Pons V2             235  launchpad        launchToken
+--    rhc-b2a748f6                              224  launchpad        selector 0xe1b77db5 matches no kn...
+--    bankr-robinhood       Bankr Robinhood     113  launchpad        the token name and symbol are not...
+live  virtuals              Virtuals Protocol    15  bonding-curve    preLaunch
+live  pair                  PAIR V5               2  stock-paired     launchTokenMulti
+```
+
+`live` means a launch was actually executed against chain state and worked. `x`
+means it was tried and reverted, with the reason kept. `--` means the toolkit
+will not drive it and says why.
+
+Three ways to use one, all of them the same pipeline underneath:
+
+```bash
+# by hand, dry run by default
+npx launch-relay launch --venue virtuals --name "Loop Rat" --symbol LOOPRAT \
+  --image https://example.com/rat.png
+
+# your own pool instead of a launchpad
+npx launch-relay launch --amm uniswap-v3 --quote WETH --pool-type single-sided \
+  --start-fdv 2 --name "Loop Rat" --symbol LOOPRAT
+
+# or relay every pump.fun graduation onto one of them
+```
+
+```js
+import { presets } from 'launch-relay';
+
+const { relay } = await presets.pumpfunToRobinhoodVenue({
+  venue: 'virtuals',
+  mnemonic: process.env.LAUNCH_RELAY_MNEMONIC,
+  buyAmount: 10,            // opening buy, in the venue's quote asset
+});
+relay.start();
+```
+
+## The venue catalog
+
+Most launchpads on this chain are unverified contracts with no documentation.
+Writing an adapter for each one by hand does not scale, and guessing at the
+arguments of a contract that spends money is worse than not supporting it.
+
+So a venue descriptor is not written. It is **observed**.
+
+1. Scan the chain for `Transfer` events from the zero address. Every ERC-20
+   that has ever existed emitted one when its supply was minted.
+2. Take the transaction that produced each. The contract it called is, by
+   definition, the thing that launched that token.
+3. Group by contract and selector. The venues sort themselves, ranked by how
+   many tokens they really launched.
+4. Resolve each selector to a signature through the Openchain database, decode
+   one real launch, and keep the decoded arguments as a **template**.
+5. Work out which leaves of that template mean what, by matching values: a
+   string equal to the token's on-chain `name()` is the name, an address equal
+   to the sender is the creator, a URL on `x.com` is the Twitter link.
+
+A launch then reuses that template and substitutes only the leaves whose
+meaning is known. Everything else keeps the value that already worked on chain.
+Nothing is invented, defaulted, or zeroed.
+
+The whole thing is falsifiable, which is the point:
+
+```js
+import { verifyDescriptor, findVenue } from 'launch-relay';
+
+verifyDescriptor(findVenue('pons-v2-dex'));  // { ok: true }
+```
+
+Re-encoding the untouched template must reproduce the anchor transaction's
+calldata **byte for byte**. A descriptor that cannot reproduce the launch it
+was learned from is refused before it can build a transaction, and the test
+suite asserts this for every venue in the shipped catalog.
+
+Encoding correctly is still not the same as launching, and that gap is where
+the interesting failures live. So the catalog does not stop at encoding: it
+runs the launch.
+
+For every venue, discovery builds the launch you would build, with a fresh
+name, symbol and salt, and executes it in the EVM against current chain state
+from a probe address funded by a state override. Nothing is signed and no funds
+are needed. Whatever it reverts with is recorded and shown, because "this venue
+reverts with `TickerReserved`" is worth far more than a venue that looks
+launchable in a table and fails the first time somebody funds a wallet for it.
+
+It goes one field at a time, which is what makes it more than a smoke test.
+Each binding is added and re-simulated on its own, so what ships is not what
+inference guessed but what the contract accepted. Anything it refuses is pruned
+back to being replayed, with the revert that pruned it recorded beside it.
+
+That earned its place immediately. One venue's launch call carries two
+`bytes32` arguments. Inference proposes both as salts, because both are
+non-zero and salts are bytes32. The first is not a salt: it is a commitment to
+a launch configuration the venue publishes, and changing it reverts with
+`LaunchEconomicsMismatch`. The second one is. Nothing in the ABI, the argument
+order, or the anchor's values distinguishes them. One `eth_call` each does, in
+about a second, and the catalog records which is which.
+
+```
+      id                    venue              seen  kind           launch fn / why not
+----  --------------------  -----------------  ----  -------------  ---------------------------------
+live  pons-v2-launch-token  Pons V2             235  launchpad      launchToken
+x     pons-v2               Pons V2             708  launchpad      a substituted launch reverts...
+--    bankr-robinhood       Bankr Robinhood     113  launchpad      the token name and symbol are...
+```
+
+Five rules keep the replay honest:
+
+- **A salt is never replayed, and never guessed.** Launchpads that deploy with
+  CREATE2 derive the token address from it, so reusing one either reverts on a
+  collision or mints at an address somebody else mined. Every non-zero `bytes32`
+  in a call is therefore proposed as a salt rather than just the first, and the
+  probe decides which of them the venue really lets a launch change.
+- **The floor is the default, not the ceiling.** The value sent with a launch is
+  rarely just the fee; creator buys ride along in it. One venue here was called
+  with both 0.0005 ETH and 0.15 ETH. Descriptors anchor on the cheapest launch
+  observed, so the default pays the fee and buys nothing.
+- **A deadline is never replayed either.** The anchor's expired the moment it
+  was mined, so a launchpad that takes one would revert every single time, with
+  nothing in the calldata to say why. A unix timestamp near the anchor's own
+  block is recognised as a deadline and reissued.
+- **A venue that hides the token's identity is not launchable.** If the name and
+  symbol are not visible in the calldata, they are inside an opaque `bytes`
+  blob, and a launch there would ship under the anchor token's name. Launching
+  somebody else's ticker is not a degraded launch, it is the wrong one, so the
+  venue is catalogued and refused instead.
+- **Every launch is simulated before it is signed.** Simulation is the
+  correctness proof for the parts of the call that were replayed rather than
+  understood. A replayed argument the venue rejects for you reverts in `plan`,
+  before anything is signed.
+
+Some things a value cannot reveal. An amount is just a number, and no amount of
+matching will say it is denominated in VIRTUAL. Those live in
+[`venues/overrides.js`](src/chains/robinhood/venues/overrides.js), where every
+entry has to state the evidence behind it, and an override that would break
+verification is dropped rather than applied.
+
+Rebuild the catalog against the current chain any time:
+
+```bash
+npm run rhc:discover -- --blocks 200000    # rescan, relearn, re-probe
+npm run rhc:discover -- --no-simulate      # skip the probe, at the cost of proof
+npm run rhc:verify                         # re-derive every pinned address
+```
+
+Venues also go stale in one specific way the catalog notices: most sit behind a
+proxy, and an upgrade changes what the replayed arguments mean without changing
+the address, the selector, or the calldata. Every descriptor records the
+implementation it was learned from, and `health()` refuses to launch if the
+chain now reports a different one.
+
+## Pools of your own
+
+No launchpad, no launch fee, no contract in the middle that can change what it
+does next week. Deploy a fixed-supply token and put it in a pool on terms you
+choose.
+
+```bash
+npx launch-relay pools
+```
+
+| AMM | Pool types | Fees | Quote |
+| --- | --- | --- | --- |
+| `uniswap-v2` | full range | 0.30% | ETH, or any ERC-20 |
+| `uniswap-v3` | full range, single-sided | 0.01% 0.05% 0.30% 1% | WETH, USDG, VIRTUAL, any ERC-20 |
+| `uniswap-v4` | full range, single-sided, with a hook | 0.01% 0.05% 0.30% 1% | native ETH, or any ERC-20 |
+
+V2 and V3 forks on this chain implement the same interfaces, so pointing
+`factory` at a fork launches on the fork.
+
+**Single-sided is the one worth understanding.** A concentrated position whose
+range sits entirely above the current price holds only the launch token: the
+whole supply is offered for sale from the starting price upward, and the pool
+fills with quote as people buy. No launch capital, no matching deposit, and no
+way for you to sell into your own pool from the other side.
+
+```js
+import { createPoolLaunchTarget } from 'launch-relay';
+
+const target = createPoolLaunchTarget({
+  amm: 'uniswap-v3',
+  quote: 'WETH',
+  poolType: 'single-sided',
+  fee: 10_000,          // 1%
+  startFdv: 2,          // the whole supply opens valued at 2 WETH
+  rangeMultiple: 1000,  // offered for sale up to 1000x the start price
+});
+```
+
+The token is [`contracts/LaunchToken.sol`](contracts/LaunchToken.sol): fixed
+supply, no owner, no mint, no pause, no upgrade path. Compiled artifact
+committed so installing the package does not pull a Solidity compiler, and
+reproducible with `npm run build:contracts`.
+
+Two honest caveats:
+
+- A pool launch is several transactions (deploy, approve, create, mint), and
+  only the first can be simulated before the token exists. `plan` prices the
+  deployment exactly and prices the rest against a stated gas ceiling; `execute`
+  estimates each step for real before sending it, and unused gas is refunded.
+- The token address is predicted from your wallet's nonce so the whole flow can
+  be priced before anything is signed. If the nonce moves between planning and
+  execution, `execute` refuses rather than pairing a token it did not deploy.
+
+### `venue` (any launchpad in the Robinhood Chain catalog)
+
+```json
+{ "target": { "type": "venue", "venue": "virtuals", "buyAmount": "10" } }
+```
+
+Driven by a learned descriptor rather than hand-written code, so adding a venue
+is a catalog entry and not a file. `venue` is a catalog id or a contract
+address. A venue with a quote asset (Virtuals quotes in VIRTUAL) checks the
+wallet's balance and allowance at plan time and prepends an approval
+transaction when one is needed. See [The venue catalog](#the-venue-catalog).
+
+Metadata hosting is an adapter. The default inlines the descriptor document
+into a `data:` URI, which has no host to go down and no pin to expire; pass
+`metadataUri` to point at your own, or `launchpadMetadataHost` to use a
+launchpad's own store when launching on that launchpad.
+
+### `pool` (Uniswap V2, V3 or V4, no launchpad at all)
+
+```json
+{
+  "target": {
+    "type": "pool", "amm": "uniswap-v3", "quote": "WETH",
+    "poolType": "single-sided", "fee": 10000, "startFdv": 2
+  }
+}
+```
+
+Deploys [`LaunchToken`](contracts/LaunchToken.sol) and opens the pool itself.
+See [Pools of your own](#pools-of-your-own).
+
+## The Relay protocol
+
+Opening a pool for a new token by hand takes four transactions: deploy,
+approve, create, mint. Between any two of them the token exists with a supply
+and no market, which is a window somebody else can trade into, and the token's
+address has to be predicted from a nonce that anything else using the wallet
+invalidates. Neither problem can be fixed off-chain.
+
+So there are contracts. Three of them, no proxy, no upgrade path.
+
+| | |
+| --- | --- |
+| [`RelayLauncher`](contracts/RelayLauncher.sol) | Deploys the token with CREATE2, routes to an AMM adapter to open the pool, sends the position straight to the locker, records the launch. All or nothing. |
+| [`LiquidityLocker`](contracts/LiquidityLocker.sol) | Holds an LP balance or a position NFT. Lets the beneficiary collect trading fees. Lets nobody take the liquidity back early. No owner at all. |
+| [`LaunchRegistry`](contracts/LaunchRegistry.sol) | One record per launch, in one shape, whichever venue it happened on. Permissionless to write, impossible to forge. |
+| [`LaunchToken`](contracts/LaunchToken.sol) | Fixed supply, no owner, no mint, no pause. The constructor is the only place supply can come from. |
+
+Four things are structural rather than promised:
+
+- **Atomic.** The token cannot exist without its pool.
+- **The address is known before you sign.** CREATE2 over a salt hashed with the
+  creator's address, so it is computable in advance and nobody else can take it.
+- **Locked on arrival.** The position goes adapter to locker inside the same
+  transaction, so there is no moment where a launch advertising locked
+  liquidity does not have it. A permanent lock has no branch that releases it.
+- **A lock can only get longer.** `extend` refuses any timestamp earlier than
+  the current one, which is what makes the original commitment worth reading.
+
+### Proved against the chain, not against a mock
+
+Robinhood Chain serves `eth_simulateV1`, so the whole protocol is deployed and
+exercised on top of the current block on every test run, against the real
+factory, the real position manager and the real WETH.
+
+```bash
+npm run contracts:simulate                 # deploy and launch, live state, no spend
+npm run contracts:simulate -- --amm uniswap-v2
+npm test                                   # includes the on-chain suite
+```
+
+```
+ok    deploy LiquidityLocker          1,389,989 gas  6,162 bytes on chain
+ok    deploy LaunchRegistry             848,442 gas  3,573 bytes on chain
+ok    deploy RelayLauncher            2,708,633 gas  12,021 bytes on chain
+ok    deploy UniswapV3Adapter         1,302,953 gas  5,813 bytes on chain
+ok    registry.setAuthorised(launcher)     47,745 gas
+ok    launcher.setAdapter(uniswap-v3)     52,334 gas
+ok    launcher.launch(...)            5,985,546 gas
+
+pool         single-sided, 1% fee, ticks -200200..-131000
+lock         id 1, permanent
+address prediction matched before the launch ran: 0x016b31ef2D31…
+```
+
+The suite asserts the refusals too, because those are the part that matters: an
+unregistered adapter, native value that does not add up, a stranger trying to
+set an adapter or a fee or take ownership, a fee one basis point over the cap,
+and a permanent lock somebody tries to withdraw. Every one of them reverts, on
+the real chain, on every run.
+
+### Deploying it
+
+```bash
+npm run contracts:deploy -- --dry-run       # simulate, price it, write nothing
+npm run contracts:deploy -- --confirm       # needs LAUNCH_RELAY_DEPLOY_KEY too
+```
+
+A dry run is not a weaker version of the deploy: it runs the identical sequence
+through the simulator, reports the gas each step costs and the address each
+will land at, and fails on anything the live run would fail on. The whole
+protocol costs roughly 7.2M gas to stand up. Deploying writes
+[`deployments.json`](src/chains/robinhood/deployments.json), which the library,
+the CLI and the website all read, so there is one answer to "which launcher is
+live" rather than three.
+
+## The website
+
+A static site that runs the same code this package exports: the venue catalog
+is bundled from the same JSON, and the launch page builds its plan by calling
+the same targets the CLI calls. A second implementation would be a second set
+of bugs.
+
+```bash
+npm run site:build     # into site/dist
+npm run site:dev       # rebuild on change, served on :8000
+npm run site:smoke     # load every page in a real browser and price a launch
+```
+
+Five pages: what this is, the catalog, a launch composer, the protocol, and
+the documentation.
+The composer prices and simulates against the live chain from a read-only
+address before a wallet is even connected, so the cost is visible without
+installing anything.
+
+`site:smoke` is the one worth running in CI. A static site is exactly the kind
+of thing that builds green and renders nothing, and the last check it does is
+to fill the launch form and price a real launch against the chain, so a broken
+bundle or a rotted venue descriptor fails the build rather than the first
+person to open the page.
+
 ## Pairing markets
 
 This is the decision PAIR has that other launchpads do not, and it is where the
@@ -611,6 +970,13 @@ Prove it
   plan [--mint <addr>]      Build and price one launch without sending it
   markets                   List the launchpad's pairing markets
 
+Robinhood Chain
+  venues [--kind k]         Every launch venue discovered on chain
+  venue <id|address>        One venue in full: ABI, bindings, anchor launch
+  pools                     Pool shapes you can open yourself
+  launch --name .. --symbol ..
+                            Launch one coin on a venue or a pool of your own
+
 Run it
   run [--once]              Run the relay
   watch                     Run with a live dashboard
@@ -626,6 +992,11 @@ Own it
   --live            Spend real funds. Requires LAUNCH_RELAY_ARMED=1
   --yes             Standing approval for every launch the budget permits
   --telegram        Approve each launch from Telegram
+  --venue <id>      Venue to launch on, from the venues list
+  --amm <id>        Open your own pool instead of using a launchpad
+  --quote <sym>     Quote asset for a pool launch
+  --pool-type <t>   full-range or single-sided
+  --start-fdv <n>   Opening valuation of the whole supply, in quote units
   --json            Machine-readable output where supported
   --debug           Verbose logging
 ```
@@ -639,6 +1010,14 @@ LAUNCH_RELAY_ARMED=1 launch-relay run --live --yes
 
 # Live with a human at the keyboard:
 LAUNCH_RELAY_ARMED=1 launch-relay run --live
+
+# One coin, on a venue, live:
+LAUNCH_RELAY_ARMED=1 launch-relay launch --live --venue pons-v2-dex \
+  --name "Loop Rat" --symbol LOOPRAT --image https://example.com/rat.png
+
+# One coin, in a single-sided pool of your own, live:
+LAUNCH_RELAY_ARMED=1 launch-relay launch --live --amm uniswap-v4 --quote ETH \
+  --pool-type single-sided --start-fdv 0.5 --name "Loop Rat" --symbol LOOPRAT
 ```
 
 ## SDK
@@ -765,18 +1144,34 @@ tail -f .ledger/launches.jsonl
 
 ```bash
 npm install
-npm test          # 204 tests, no network, nothing spent
-npm run typecheck # index.d.ts against tsc
+npm test                  # the whole suite, including the on-chain contract tests
+npm run typecheck         # index.d.ts against tsc
+npm run rhc:verify        # the address book against the live chain
+npm run rhc:discover      # rebuild the venue catalog
+npm run build:contracts   # recompile contracts/ into committed artifacts
+npm run contracts:simulate
+npm run site:build && npm run site:smoke
 node bin/launch-relay.js doctor
 ```
 
-Tests cover the pure decision layers (rules, budget, rotation, market selection,
-naming, normalization, backtest scoring) and the adapter behavior that matters
-most: metadata hashing, the dev-buy sentinel, plan and execute refusals, dedupe
-across restarts, fee
-claim batching, funding shortfalls, the full engine pipeline in both modes, and
-every failure mode of the Telegram approver (wrong chat, unauthorized user, stale
-nonce, timeout, transport error, all denying).
+Most of the suite needs no network: the pure decision layers (rules, budget,
+rotation, market selection, naming, normalization, backtest scoring), the
+adapter behaviour that matters most (metadata hashing, the dev-buy sentinel,
+plan and execute refusals, dedupe across restarts, fee claim batching, funding
+shortfalls, the full engine pipeline in both modes, every failure mode of the
+Telegram approver), the descriptor engine, the pool arithmetic, and the
+inference that reads meaning out of an anchor transaction.
+
+Two parts do talk to the chain, on purpose. `test/venue-catalog.test.js`
+asserts that every shipped venue reproduces its own anchor calldata, and
+`test/contracts.test.js` deploys the protocol on top of the current block and
+launches through it. Both skip, loudly, when the RPC cannot be reached; neither
+signs anything or needs a key.
+
+Compiled contract artifacts are committed so that installing this package does
+not pull a Solidity compiler, and so the bytecode a launch deploys is
+reviewable in the same diff as the source it came from. `npm run
+build:contracts` reproduces them byte for byte from a pinned compiler.
 
 ## Disclaimer
 
