@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launch — Relay</title>
+<meta name="description" content="Launch a coin on any Robinhood Chain venue, or open a pool of your own. Priced and simulated before anything is signed.">
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='9' fill='%234ade80'/></svg>">
+</head>
+<body>
+<header class="site"><div class="wrap"></div></header>
+
+<main>
+  <section style="padding-bottom:28px">
+    <div class="wrap narrow">
+      <h1>Launch a coin</h1>
+      <p>
+        Everything is priced and simulated against the live chain before
+        anything is signed, and the plan you approve is the transaction that
+        gets sent. This page runs the same code as the command line.
+      </p>
+    </div>
+  </section>
+
+  <section style="padding-top:0;border-top:0">
+    <div class="wrap">
+      <div class="grid" style="grid-template-columns:minmax(0,1fr) minmax(0,420px);align-items:start;gap:22px">
+        <form id="form" class="card" autocomplete="off">
+          <div class="eyebrow">The coin</div>
+          <div class="row">
+            <div class="field">
+              <label for="name">Name</label>
+              <input id="name" name="name" required maxlength="64" placeholder="Loop Rat">
+            </div>
+            <div class="field">
+              <label for="symbol">Symbol</label>
+              <input id="symbol" name="symbol" required maxlength="16" placeholder="LOOPRAT">
+            </div>
+          </div>
+          <div class="field">
+            <label for="image">Image URL<span class="hint">Where the logo already lives. Nothing is uploaded from here.</span></label>
+            <input id="image" name="image" type="url" placeholder="https://example.com/logo.png">
+          </div>
+          <div class="field">
+            <label for="description">Description</label>
+            <textarea id="description" name="description" rows="2" maxlength="300" placeholder="What it is"></textarea>
+          </div>
+
+          <div class="eyebrow" style="margin-top:26px">Where it launches</div>
+          <div class="field">
+            <label for="mode">Route</label>
+            <select id="mode">
+              <option value="venue">A launchpad in the catalog</option>
+              <option value="pool">A pool of your own</option>
+            </select>
+          </div>
+
+          <div id="venue-fields">
+            <div class="field">
+              <label for="venue">Venue<span class="hint">Only venues a simulated launch actually worked on</span></label>
+              <select id="venue"></select>
+            </div>
+            <div id="venue-note"></div>
+          </div>
+
+          <div id="pool-fields" hidden>
+            <div class="row">
+              <div class="field">
+                <label for="amm">AMM</label>
+                <select id="amm">
+                  <option value="uniswap-v3">Uniswap V3</option>
+                  <option value="uniswap-v4">Uniswap V4</option>
+                  <option value="uniswap-v2">Uniswap V2</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="poolType">Shape</label>
+                <select id="poolType">
+                  <option value="single-sided">One-sided (no quote needed)</option>
+                  <option value="full-range">Full range (both sides)</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="quote">Quote asset</label>
+                <select id="quote"></select>
+              </div>
+              <div class="field">
+                <label for="fee">Fee tier</label>
+                <select id="fee"></select>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="startFdv">Opening valuation<span class="hint">Whole supply, in the quote asset</span></label>
+                <input id="startFdv" type="number" min="0" step="any" value="2">
+              </div>
+              <div class="field" id="quote-amount-field" hidden>
+                <label for="quoteAmount">Quote to deposit</label>
+                <input id="quoteAmount" type="number" min="0" step="any" value="0.01">
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+            <button class="btn primary" id="plan" type="submit">Price it</button>
+            <button class="btn ghost" id="reset" type="reset">Reset</button>
+          </div>
+        </form>
+
+        <aside style="display:grid;gap:16px;position:sticky;top:78px">
+          <div class="card" id="wallet"></div>
+          <div class="card" id="plan-panel"></div>
+        </aside>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site"><div class="wrap"></div></footer>
+<script type="module" src="/src/launch-page.js"></script>
+</body>
+</html>

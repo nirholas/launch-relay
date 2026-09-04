@@ -8,3 +8,6 @@ ledger/
 coverage/
 .DS_Store
 .assets/
+.cache/
+.tmp/
+site/dist/

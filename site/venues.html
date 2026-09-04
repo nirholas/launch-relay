@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Venues — Relay</title>
+<meta name="description" content="Every launch venue discovered on Robinhood Chain, what it charges, what it lets you set, and what it reverts with.">
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='9' fill='%234ade80'/></svg>">
+</head>
+<body>
+<header class="site"><div class="wrap"></div></header>
+
+<main>
+  <section style="padding-bottom:24px">
+    <div class="wrap">
+      <div class="narrow">
+        <h1>Launch venues</h1>
+        <p id="summary" class="dim"></p>
+      </div>
+      <div class="card" style="margin-top:22px">
+        <div class="row">
+          <div>
+            <label for="q">Search<span class="hint">Name, id, contract address, or function</span></label>
+            <input id="q" type="search" placeholder="pons, virtuals, 0x7ed5…" autocomplete="off">
+          </div>
+          <div>
+            <label for="state">Show<span class="hint">Whether a launch on it was proved to work</span></label>
+            <select id="state">
+              <option value="launchable">Launchable</option>
+              <option value="all">Everything found</option>
+              <option value="refused">Refused, with the reason</option>
+            </select>
+          </div>
+          <div>
+            <label for="sort">Order by<span class="hint">How the list is ranked</span></label>
+            <select id="sort">
+              <option value="launches">Launches observed</option>
+              <option value="fee">Launch fee</option>
+              <option value="fields">Fields you can set</option>
+              <option value="name">Name</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="padding-top:0;border-top:0">
+    <div class="wrap">
+      <div id="list"></div>
+    </div>
+  </section>
+</main>
+
+<footer class="site"><div class="wrap"></div></footer>
+<script type="module" src="/src/venues-page.js"></script>
+</body>
+</html>

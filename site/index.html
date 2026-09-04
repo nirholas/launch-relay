@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relay — launch on anything Robinhood Chain runs</title>
+<meta name="description" content="Every launchpad on Robinhood Chain, learned from the chain itself. Uniswap V2, V3 and V4 pools you open yourself. An atomic launcher that locks liquidity in the same transaction.">
+<meta property="og:title" content="Relay — launch on anything Robinhood Chain runs">
+<meta property="og:description" content="Every launchpad on Robinhood Chain, learned from the chain itself, and a protocol that launches atomically with the liquidity locked.">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='9' fill='%234ade80'/></svg>">
+</head>
+<body>
+<header class="site"><div class="wrap"></div></header>
+
+<main>
+  <section>
+    <div class="wrap">
+      <div class="narrow">
+        <h1>Launch on anything Robinhood&nbsp;Chain runs.</h1>
+        <p style="font-size:1.12rem">
+          Dozens of launchpads. Almost none of them documented. This reads the
+          chain, works out how each one is called, proves it by simulating a
+          launch against the live contract, and gives you one way to drive all
+          of them. Plus pools of your own, and a protocol that launches
+          atomically with the liquidity locked.
+        </p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin:26px 0 8px">
+          <a class="btn primary" href="/launch.html">Launch a coin</a>
+          <a class="btn" href="/venues.html">Browse the venues</a>
+          <a class="btn ghost" href="/protocol.html">Read the contracts</a>
+        </div>
+      </div>
+      <div id="stats" class="grid three" style="margin-top:44px"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="eyebrow">Three ways in</div>
+      <h2>Pick the venue, or be the venue.</h2>
+      <div class="grid three" style="margin-top:24px" id="routes"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="eyebrow">The catalog</div>
+      <h2>Nothing here was typed out.</h2>
+      <div class="grid two" style="margin-top:20px;align-items:start">
+        <div class="narrow">
+          <p>
+            Every ERC-20 that has ever existed emitted a transfer from the zero
+            address when its supply was minted. Find those, take the
+            transaction that produced each one, and the contract it called is by
+            definition the thing that launched that token. Group them, and the
+            venues sort themselves by how many coins they really launched.
+          </p>
+          <p>
+            One real launch per venue is decoded and kept as a template. A new
+            launch reuses it and replaces only the parts whose meaning is
+            known: the name, the symbol, the metadata, the salt. Everything else
+            keeps the value that already worked on chain. Nothing is invented,
+            defaulted, or zeroed.
+          </p>
+          <p>
+            <strong>Then every field is proved.</strong> Each one is substituted
+            and re-simulated against the live contract, one at a time. What
+            ships is not what inference guessed; it is what the venue accepted.
+          </p>
+        </div>
+        <div class="card">
+          <div class="eyebrow" style="margin-bottom:10px">Why that last step exists</div>
+          <p style="margin-bottom:12px">
+            One venue's launch call carries two <code>bytes32</code> arguments.
+            Both look like salts. The first is a commitment to a launch
+            configuration the venue publishes, and changing it reverts with
+            <code>LaunchEconomicsMismatch</code>. The second is the real salt.
+          </p>
+          <p style="margin-bottom:0">
+            Nothing in the ABI, the argument order, or the values tells them
+            apart. One <code>eth_call</code> each does, in about a second, and
+            the catalog records which is which.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="eyebrow">Library</div>
+      <h2>Or drive it from code.</h2>
+      <div class="grid two" style="margin-top:20px;align-items:start">
+        <div>
+          <p>One dependency, <code>viem</code>. Dry run by default; live mode needs a deliberate out-of-band arm.</p>
+          <pre><code>npm install launch-relay
+
+npx launch-relay venues
+npx launch-relay launch --venue virtuals \
+  --name "Loop Rat" --symbol LOOPRAT</code></pre>
+        </div>
+        <div>
+          <p>Relay every pump.fun graduation onto a venue of your choosing, or into a pool you own.</p>
+          <pre><code>import { presets } from 'launch-relay';
+
+const { relay } = await presets.pumpfunToPool({
+  amm: 'uniswap-v3',
+  poolType: 'single-sided',
+  startFdv: 2,
+});
+relay.start();</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="eyebrow">Contracts</div>
+      <h2>Proved against the chain, not against a mock.</h2>
+      <div class="narrow">
+        <p>
+          Robinhood Chain serves <code>eth_simulateV1</code>, so the whole
+          protocol is deployed and exercised on top of the current block on
+          every test run: the real factory, the real position manager, the real
+          fee tiers. Including the refusals, which are the part that matters.
+        </p>
+      </div>
+      <div id="proof" class="card" style="margin-top:20px"></div>
+    </div>
+  </section>
+</main>
+
+<footer class="site"><div class="wrap"></div></footer>
+<script type="module" src="/src/landing.js"></script>
+</body>
+</html>
