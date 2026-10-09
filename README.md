@@ -1193,3 +1193,7 @@ Nothing here is financial advice. Read the code before you arm it.
 ## License
 
 Apache-2.0
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=nirholas/launch-relay&type=Date)](https://www.star-history.com/#nirholas/launch-relay&Date)
