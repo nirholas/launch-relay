@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+title: "launch-relay"
+abstract: "A coin bonds on pump.fun. Seconds later a paired token for it exists on PAIR.fund, deployed from a rotating wallet, priced against the Robinhood Stock Token that actually fits the coin, with a launch plan that a human approved from their phone. None of that is hardcoded: sources, launchpads, chains, rotation, filtering, naming, and pairing"
+repository-code: "https://github.com/nirholas/launch-relay"
+url: "https://three.ws"
+authors:
+  - name: three.ws
+    website: "https://three.ws"

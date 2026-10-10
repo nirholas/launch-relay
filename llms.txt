@@ -1,0 +1,28 @@
+# launch-relay
+
+> A coin bonds on pump.fun. Seconds later a paired token for it exists on PAIR.fund, deployed from a rotating wallet, priced against the Robinhood Stock Token that actually fits the coin, with a launch plan that a human approved from their phone. None of that is hardcoded: sources, launchpads, chains, rotation, filtering, naming, and pairing
+
+launch-relay is an open-source repository by nirholas, part of the three.ws ecosystem.
+
+## Docs
+
+- [README](https://github.com/nirholas/launch-relay/blob/HEAD/README.md): install, usage and reference
+- [Contents](https://github.com/nirholas/launch-relay/blob/HEAD/README.md#contents)
+- [Install](https://github.com/nirholas/launch-relay/blob/HEAD/README.md#install)
+- [Quick start](https://github.com/nirholas/launch-relay/blob/HEAD/README.md#quick-start)
+- [Backtest before you fund anything](https://github.com/nirholas/launch-relay/blob/HEAD/README.md#backtest-before-you-fund-anything)
+- [Approve from your phone](https://github.com/nirholas/launch-relay/blob/HEAD/README.md#approve-from-your-phone)
+- [The dashboard](https://github.com/nirholas/launch-relay/blob/HEAD/README.md#the-dashboard)
+- [Safety](https://github.com/nirholas/launch-relay/blob/HEAD/README.md#safety)
+- [How a launch is decided](https://github.com/nirholas/launch-relay/blob/HEAD/README.md#how-a-launch-is-decided)
+- [AGENTS.md](https://github.com/nirholas/launch-relay/blob/HEAD/AGENTS.md): guidance for coding agents
+- [Full text for LLMs](https://github.com/nirholas/launch-relay/blob/HEAD/llms-full.txt): the README inlined
+
+## Project
+
+- [Source](https://github.com/nirholas/launch-relay)
+- [Issues](https://github.com/nirholas/launch-relay/issues)
+- [Discussions](https://github.com/nirholas/launch-relay/discussions)
+- [Homepage](https://github.com/nirholas/launch-relay)
+- [three.ws](https://three.ws): the platform this is part of
+- [All repositories by nirholas](https://github.com/nirholas/nirholas#readme)
