@@ -98,7 +98,7 @@
 		"esbuild": "^0.28.2",
 		"solc": "^0.8.36",
 		"typescript": "^5.6.0",
-		"vitest": "^4.1.7"
+		"vitest": "^4.1.12"
 	},
 	"publishConfig": {
 		"access": "public"
