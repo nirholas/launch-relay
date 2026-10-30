@@ -91,7 +91,7 @@
 		"viem": "^2.52.2"
 	},
 	"optionalDependencies": {
-		"@solana/web3.js": "^1.98.4",
+		"@solana/web3.js": "^3.0.2",
 		"bs58": "^6.0.0"
 	},
 	"devDependencies": {
