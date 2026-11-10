@@ -1,0 +1,22 @@
+{
+  "name": "launch-relay",
+  "owner": {
+    "name": "nirholas"
+  },
+  "description": "Dry-run and plan token launches on Robinhood Chain venues with the launch-relay CLI and rules engine.",
+  "plugins": [
+    {
+      "name": "launch-relay",
+      "source": "./plugins/launch-relay",
+      "description": "Dry-run and plan token launches on Robinhood Chain venues with the launch-relay CLI and rules engine.",
+      "category": "automation",
+      "tags": [
+        "launchpad",
+        "robinhood-chain",
+        "uniswap",
+        "automation",
+        "cli"
+      ]
+    }
+  ]
+}

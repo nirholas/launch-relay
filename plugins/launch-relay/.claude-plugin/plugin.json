@@ -1,0 +1,17 @@
+{
+  "name": "launch-relay",
+  "version": "0.1.0",
+  "description": "Dry-run and plan token launches on Robinhood Chain venues with the launch-relay CLI and rules engine.",
+  "author": {
+    "name": "nirholas"
+  },
+  "repository": "https://github.com/nirholas/launch-relay",
+  "homepage": "https://github.com/nirholas/launch-relay",
+  "keywords": [
+    "launchpad",
+    "robinhood-chain",
+    "uniswap",
+    "automation",
+    "cli"
+  ]
+}
