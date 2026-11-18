@@ -1197,7 +1197,7 @@ Nothing here is financial advice. Read the code before you arm it.
 
 ## License
 
-Apache-2.0
+Proprietary. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ## Star History
 

@@ -142,7 +142,7 @@ export function renderChrome() {
 			el('span', { class: 'spacer' }),
 			extLink(EXPLORER, 'Explorer'),
 			extLink(`${REPO}#readme`, 'Documentation'),
-			extLink(`${REPO}/blob/main/LICENSE`, 'Apache-2.0'),
+			extLink(`${REPO}/blob/main/LICENSE`, 'Proprietary'),
 		);
 	}
 

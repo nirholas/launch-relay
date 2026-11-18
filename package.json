@@ -3,7 +3,7 @@
 	"version": "0.1.0",
 	"description": "Launch a coin on any venue Robinhood Chain runs: PAIR, Virtuals, and every other launchpad discovered on chain, or a Uniswap V2/V3/V4 pool of your own. Pluggable event sources (pump.fun graduations on Solana) drive them through one rules -> plan -> confirm -> execute pipeline.",
 	"type": "module",
-	"license": "Apache-2.0",
+	"license": "UNLICENSED",
 	"author": "nirholas",
 	"repository": {
 		"type": "git",
