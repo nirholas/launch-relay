@@ -2,7 +2,7 @@
 
 > A coin bonds on pump.fun. Seconds later a paired token for it exists on PAIR.fund, deployed from a rotating wallet, priced against the Robinhood Stock Token that actually fits the coin, with a launch plan that a human approved from their phone. None of that is hardcoded: sources, launchpads, chains, rotation, filtering, naming, and pairing
 
-launch-relay is an open-source repository by nirholas, part of the three.ws ecosystem.
+launch-relay is a proprietary, source-available repository by nirholas, part of the three.ws ecosystem.
 
 ## Docs
 

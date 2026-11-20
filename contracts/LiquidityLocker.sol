@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.36;
 
 import {IERC20, IERC721} from "./interfaces/IERC20.sol";
